@@ -1274,13 +1274,13 @@
             }
         }
 
-        // Загружаем следующий номер счета автоматически
-        async function loadNextInvoiceNumber() {
+        // Загружаем текущий номер счета (без инкремента)
+        async function loadCurrentInvoiceNumber() {
             // Если редактируем, не меняем номер
             if (editId) return;
 
             try {
-                const response = await fetch('/api/invoice-counter/next');
+                const response = await fetch('/api/invoice-counter/current');
                 const data = await response.json();
                 document.getElementById('invoiceNumber').value = data.number;
             } catch (error) {
@@ -1291,7 +1291,7 @@
         // Загружаем данные при старте
         loadWarehouseProducts();
         loadClients();
-        loadNextInvoiceNumber();
+        loadCurrentInvoiceNumber();
 
         if (editId) {
             loadInvoiceForEdit(editId);
@@ -1389,6 +1389,9 @@
 
                         // Очищаем URL
                         window.history.pushState({}, '', '/');
+                    } else {
+                        // Если создавали новый счет, загружаем следующий номер
+                        loadCurrentInvoiceNumber();
                     }
 
                     // Прокручиваем к алерту
@@ -1403,5 +1406,6 @@
             }
         });
     </script>
+    <script src="/auth.js"></script>
 </body>
 </html>

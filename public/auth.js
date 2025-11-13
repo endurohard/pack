@@ -110,6 +110,6 @@ async function logout() {
 }
 
 // Проверяем авторизацию при загрузке страницы (кроме страницы логина)
-if (window.location.pathname !== '/login.html') {
+if (window.location.pathname !== '/login.html' && window.location.pathname !== '/login') {
     checkAuth();
 }

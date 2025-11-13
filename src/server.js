@@ -11,6 +11,7 @@ import whatsappManager from './whatsappManager.js';
 import invoiceCounter from './invoiceCounter.js';
 import AutoSendScheduler from './autoSendScheduler.js';
 import { authMiddleware, loginHandler, verifyHandler, logoutHandler } from './authMiddleware.js';
+import authDatabase from './authDatabase.js';
 import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -33,6 +34,37 @@ app.use(authMiddleware);
 app.post('/api/auth/login', loginHandler);
 app.get('/api/auth/verify', verifyHandler);
 app.post('/api/auth/logout', logoutHandler);
+
+// API endpoints для управления учетными данными
+app.get('/api/auth/current-user', (req, res) => {
+  try {
+    const username = authDatabase.getUsername();
+    res.json({ username });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/change-credentials', (req, res) => {
+  try {
+    const { currentPassword, newUsername, newPassword } = req.body;
+
+    if (!currentPassword || !newUsername || !newPassword) {
+      return res.status(400).json({
+        error: 'Все поля обязательны для заполнения'
+      });
+    }
+
+    const result = authDatabase.changeCredentials(currentPassword, newUsername, newPassword);
+    res.json({
+      success: true,
+      message: 'Учетные данные успешно изменены',
+      ...result
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
 
 // Создаем сервис генерации счетов
 const invoiceService = new SimpleInvoiceService({

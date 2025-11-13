@@ -1,31 +1,28 @@
 import crypto from 'crypto';
 import dotenv from 'dotenv';
+import authDatabase from './authDatabase.js';
 
 dotenv.config();
 
-// Получаем логин и пароль из переменных окружения
-const AUTH_USERNAME = process.env.AUTH_USERNAME || 'admin';
-const AUTH_PASSWORD = process.env.AUTH_PASSWORD || 'admin123';
-
-// Простое хранилище токенов (в продакшене используйте Redis или БД)
+// Хранилище токенов в памяти
 const tokens = new Map();
 
 /**
- * Генерировать случайный токен
+ * Генерация случайного токена
  */
 function generateToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
 /**
- * Проверить логин и пароль
+ * Проверка учетных данных через базу данных
  */
 export function validateCredentials(username, password) {
-  return username === AUTH_USERNAME && password === AUTH_PASSWORD;
+  return authDatabase.validateCredentials(username, password);
 }
 
 /**
- * Создать токен для пользователя
+ * Создание нового токена для пользователя
  */
 export function createToken(username) {
   const token = generateToken();
@@ -40,7 +37,7 @@ export function createToken(username) {
 }
 
 /**
- * Проверить токен
+ * Проверка валидности токена
  */
 export function verifyToken(token) {
   const tokenData = tokens.get(token);
@@ -49,7 +46,7 @@ export function verifyToken(token) {
     return { valid: false };
   }
 
-  // Проверяем срок действия
+  // Проверка истечения срока действия
   if (tokenData.expiresAt < Date.now()) {
     tokens.delete(token);
     return { valid: false };
@@ -62,22 +59,46 @@ export function verifyToken(token) {
 }
 
 /**
- * Удалить токен (выход)
+ * Удаление токена (выход)
  */
 export function revokeToken(token) {
   tokens.delete(token);
 }
 
 /**
- * Middleware для защиты маршрутов
+ * Middleware для проверки авторизации
  */
 export function authMiddleware(req, res, next) {
-  // Пропускаем страницу логина и API авторизации
-  if (req.path === '/login.html' || req.path.startsWith('/api/auth/')) {
+  // Пропускаем страницу логина, все API и статические ресурсы, и все HTML страницы
+  // Авторизация для HTML страниц проверяется на клиенте через auth.js
+  if (req.path === '/login.html' ||
+      req.path === '/login' ||
+      req.path.startsWith('/api/') ||
+      req.path.endsWith('.html') ||
+      req.path.endsWith('.css') ||
+      req.path.endsWith('.js') ||
+      req.path.endsWith('.png') ||
+      req.path.endsWith('.jpg') ||
+      req.path.endsWith('.jpeg') ||
+      req.path.endsWith('.gif') ||
+      req.path.endsWith('.svg') ||
+      req.path.endsWith('.ico') ||
+      req.path.endsWith('.woff') ||
+      req.path.endsWith('.woff2') ||
+      req.path.endsWith('.ttf') ||
+      req.path.endsWith('.eot') ||
+      req.path.endsWith('.pdf') ||
+      req.path === '/' ||
+      req.path === '/invoices' ||
+      req.path === '/clients' ||
+      req.path === '/warehouse' ||
+      req.path === '/analytics' ||
+      req.path === '/settings' ||
+      req.path === '/whatsapp-viewer') {
     return next();
   }
 
-  // Получаем токен из заголовка или cookie
+  // Получаем токен из заголовка Authorization
   const authHeader = req.headers.authorization;
   let token = null;
 
@@ -86,14 +107,15 @@ export function authMiddleware(req, res, next) {
   }
 
   if (!token) {
-    // Для HTML страниц перенаправляем на логин
+    // Для HTML запросов - редирект на логин
     if (req.accepts('html')) {
       return res.redirect('/login.html');
     }
-    // Для API возвращаем 401
+    // Для API запросов - 401
     return res.status(401).json({ error: 'Требуется авторизация' });
   }
 
+  // Проверяем токен
   const verification = verifyToken(token);
 
   if (!verification.valid) {
@@ -104,22 +126,18 @@ export function authMiddleware(req, res, next) {
   }
 
   // Добавляем информацию о пользователе в запрос
-  req.user = { username: verification.username };
+  req.user = {
+    username: verification.username
+  };
+
   next();
 }
 
 /**
- * Endpoint для логина
+ * Обработчик логина
  */
 export function loginHandler(req, res) {
   const { username, password } = req.body;
-
-  if (!username || !password) {
-    return res.status(400).json({
-      success: false,
-      error: 'Необходимо указать логин и пароль'
-    });
-  }
 
   if (!validateCredentials(username, password)) {
     return res.status(401).json({
@@ -138,29 +156,36 @@ export function loginHandler(req, res) {
 }
 
 /**
- * Endpoint для проверки токена
+ * Обработчик проверки токена
  */
 export function verifyHandler(req, res) {
   const authHeader = req.headers.authorization;
+  let token = null;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7);
+  }
+
+  if (!token) {
     return res.json({ valid: false });
   }
 
-  const token = authHeader.substring(7);
   const verification = verifyToken(token);
-
   res.json(verification);
 }
 
 /**
- * Endpoint для выхода
+ * Обработчик выхода
  */
 export function logoutHandler(req, res) {
   const authHeader = req.headers.authorization;
+  let token = null;
 
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7);
+    token = authHeader.substring(7);
+  }
+
+  if (token) {
     revokeToken(token);
   }
 

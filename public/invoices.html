@@ -178,6 +178,42 @@
             color: #333;
         }
 
+        .filters {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .filters label {
+            font-weight: 600;
+            color: #666;
+        }
+
+        .filters select {
+            padding: 8px 16px;
+            border: 2px solid #e1e8ed;
+            border-radius: 8px;
+            font-size: 14px;
+            background: white;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+
+        .filters select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        /* Стиль для оплаченных счетов */
+        tr.invoice-paid {
+            background: linear-gradient(90deg, #e8f5e9 0%, #f1f8f4 100%);
+            border-left: 4px solid #4CAF50;
+        }
+
+        tr.invoice-paid td {
+            opacity: 0.85;
+        }
+
         .btn {
             padding: 12px 24px;
             border: none;
@@ -641,6 +677,12 @@
         <div class="table-container">
             <div class="table-header">
                 <h2>Все счета</h2>
+                <div class="filters">
+                    <label for="monthFilter">Фильтр по месяцу:</label>
+                    <select id="monthFilter" onchange="filterByMonth()">
+                        <option value="all">Все месяцы</option>
+                    </select>
+                </div>
             </div>
 
             <div id="loading" class="loading">
@@ -716,31 +758,114 @@
             }
         }
 
+        // Глобальные переменные для хранения всех счетов
+        let allInvoices = [];
+        let filteredInvoices = [];
+
         async function loadInvoices() {
             try {
                 const response = await fetch('/api/invoices/list');
                 const data = await response.json();
 
-                // Обновляем статистику
-                document.getElementById('statTotal').textContent = data.statistics.total;
-                document.getElementById('statPaid').textContent = data.statistics.paid;
-                document.getElementById('statUnpaid').textContent = data.statistics.unpaid;
-                document.getElementById('statTotalAmount').textContent = formatMoney(data.statistics.totalAmount);
+                // Сохраняем все счета
+                allInvoices = data.invoices;
+                filteredInvoices = [...allInvoices];
+
+                // Заполняем фильтр месяцев
+                populateMonthFilter(allInvoices);
+
+                // Обновляем статистику (с учетом фильтра)
+                updateStatistics(filteredInvoices);
 
                 // Показываем таблицу
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
 
-                if (data.invoices.length === 0) {
+                if (filteredInvoices.length === 0) {
                     document.getElementById('invoicesTable').style.display = 'none';
                     document.getElementById('emptyState').style.display = 'block';
                 } else {
-                    renderInvoices(data.invoices);
+                    renderInvoices(filteredInvoices);
                 }
             } catch (error) {
                 console.error('Ошибка загрузки:', error);
                 alert('Ошибка загрузки счетов');
             }
+        }
+
+        function populateMonthFilter(invoices) {
+            const monthSelect = document.getElementById('monthFilter');
+            const months = new Map();
+
+            // Собираем уникальные месяцы
+            invoices.forEach(invoice => {
+                const date = new Date(invoice.createdAt);
+                const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                const monthName = date.toLocaleDateString('ru-RU', { year: 'numeric', month: 'long' });
+                months.set(yearMonth, monthName);
+            });
+
+            // Сортируем месяцы по убыванию (самые новые сверху)
+            const sortedMonths = Array.from(months.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+
+            // Очищаем селектор (оставляем только "Все месяцы")
+            monthSelect.innerHTML = '<option value="all">Все месяцы</option>';
+
+            // Добавляем опции месяцев
+            sortedMonths.forEach(([value, label]) => {
+                const option = document.createElement('option');
+                option.value = value;
+                option.textContent = label.charAt(0).toUpperCase() + label.slice(1);
+                monthSelect.appendChild(option);
+            });
+
+            // Автоматически выбираем текущий месяц, если он есть
+            const currentYearMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+            if (months.has(currentYearMonth)) {
+                monthSelect.value = currentYearMonth;
+                filterByMonth(); // Применяем фильтр
+            }
+        }
+
+        function filterByMonth() {
+            const monthFilter = document.getElementById('monthFilter').value;
+
+            if (monthFilter === 'all') {
+                filteredInvoices = [...allInvoices];
+            } else {
+                filteredInvoices = allInvoices.filter(invoice => {
+                    const date = new Date(invoice.createdAt);
+                    const invoiceYearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                    return invoiceYearMonth === monthFilter;
+                });
+            }
+
+            // Обновляем статистику для отфильтрованных счетов
+            updateStatistics(filteredInvoices);
+
+            // Перерисовываем таблицу
+            if (filteredInvoices.length === 0) {
+                document.getElementById('invoicesTable').style.display = 'none';
+                document.getElementById('emptyState').style.display = 'block';
+            } else {
+                document.getElementById('invoicesTable').style.display = 'table';
+                document.getElementById('emptyState').style.display = 'none';
+                renderInvoices(filteredInvoices);
+            }
+        }
+
+        function updateStatistics(invoices) {
+            const stats = {
+                total: invoices.length,
+                paid: invoices.filter(inv => inv.paid).length,
+                unpaid: invoices.filter(inv => !inv.paid).length,
+                totalAmount: invoices.reduce((sum, inv) => sum + inv.amount, 0)
+            };
+
+            document.getElementById('statTotal').textContent = stats.total;
+            document.getElementById('statPaid').textContent = stats.paid;
+            document.getElementById('statUnpaid').textContent = stats.unpaid;
+            document.getElementById('statTotalAmount').textContent = formatMoney(stats.totalAmount);
         }
 
         function renderInvoices(invoices) {
@@ -749,6 +874,11 @@
 
             invoices.forEach(invoice => {
                 const tr = document.createElement('tr');
+
+                // Добавляем класс для оплаченных счетов
+                if (invoice.paid) {
+                    tr.classList.add('invoice-paid');
+                }
 
                 const statusBadge = invoice.paid
                     ? '<span class="status-badge status-paid">✓ Оплачен</span>'
@@ -1294,5 +1424,6 @@
         // Загружаем при старте
         loadInvoices();
     </script>
+    <script src="/auth.js"></script>
 </body>
 </html>
