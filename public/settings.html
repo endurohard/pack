@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Настройки</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        /* Dropdown Menu Styles */
+        .nav-menu {
+            position: relative;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+
+        .menu-button {
+            background: white;
+            color: #667eea;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .menu-button:hover {
+            background: #f8f9fa;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            background: white;
+            min-width: 220px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            border-radius: 8px;
+            z-index: 1000;
+            margin-top: 5px;
+            overflow: hidden;
+        }
+
+        .dropdown-content.show {
+            display: block;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .dropdown-content a {
+            color: #333;
+            padding: 14px 20px;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .dropdown-content a:hover {
+            background: #f8f9fa;
+            border-left-color: #667eea;
+        }
+
+        .dropdown-content a.active {
+            background: #e3f2fd;
+            border-left-color: #667eea;
+            font-weight: 600;
+        }
+
+        .header {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .settings-section {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .settings-section h2 {
+            font-size: 1.5em;
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e1e8ed;
+        }
+
+        .setting-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 0;
+            border-bottom: 1px solid #e1e8ed;
+        }
+
+        .setting-row:last-child {
+            border-bottom: none;
+        }
+
+        .setting-label {
+            flex: 1;
+        }
+
+        .setting-label h3 {
+            font-size: 1.1em;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .setting-label p {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .setting-value {
+            flex-shrink: 0;
+            margin-left: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e8ed;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #e1e8ed;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #d1d8dd;
+        }
+
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .status-active {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-inactive {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        .info-box p {
+            color: #1976d2;
+            line-height: 1.6;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Dropdown Navigation Menu -->
+        <div class="nav-menu">
+            <button class="menu-button" onclick="toggleMenu()">
+                ☰ Меню
+            </button>
+            <div class="dropdown-content" id="dropdownMenu">
+                <a href="/">📄 Создать счет</a>
+                <a href="/invoices">📊 Список счетов</a>
+                <a href="/clients">👥 Клиенты</a>
+                <a href="/warehouse">📦 Склад</a>
+                <a href="/analytics">📈 Аналитика</a>
+                <a href="/settings" class="active">⚙️ Настройки</a>
+            </div>
+        </div>
+
+        <div class="header">
+            <h1>⚙️ Настройки</h1>
+        </div>
+
+        <!-- WhatsApp Message Settings -->
+        <div class="settings-section">
+            <h2>💬 Настройки WhatsApp сообщений</h2>
+            <form id="whatsappForm">
+                <div class="form-group">
+                    <label for="whatsappGreeting">Текст приветствия</label>
+                    <textarea id="whatsappGreeting" rows="6" style="width: 100%; padding: 12px; border: 2px solid #e1e8ed; border-radius: 8px; font-size: 16px; font-family: inherit; resize: vertical;" placeholder="Добрый день!&#10;&#10;Высылаю счет №{номер} на оплату.&#10;&#10;С уважением."></textarea>
+                    <small style="color: #666; font-size: 0.9em;">💡 Используйте {номер} для автоматической подстановки номера счета</small>
+                </div>
+                <button type="submit" class="btn btn-primary">💾 Сохранить сообщение</button>
+            </form>
+            <div class="info-box">
+                <p>💡 Это сообщение будет использоваться при отправке счетов через WhatsApp</p>
+            </div>
+            <div class="info-box" style="margin-top: 15px; border-left-color: #25D366; background: #e8f5e9;">
+                <p style="color: #1b5e20; font-weight: 600; margin-bottom: 8px;">📱 Серверная интеграция WhatsApp Web:</p>
+                <p style="color: #2e7d32; line-height: 1.6;">
+                    WhatsApp Web работает на сервере в фоновом режиме. После первого сканирования QR-кода,
+                    сессия сохраняется и больше не требует повторного входа. Вы можете просмотреть состояние
+                    WhatsApp Web на сервере через специальную страницу.
+                </p>
+                <div style="margin-top: 15px;">
+                    <a href="/whatsapp-viewer" target="_blank" class="btn btn-primary" style="text-decoration: none; display: inline-block;">
+                        👁️ Открыть просмотр WhatsApp Web
+                    </a>
+                </div>
+            </div>
+            <div class="info-box" style="margin-top: 15px; border-left-color: #FFA500; background: #fff3cd;">
+                <p style="color: #856404; font-weight: 600; margin-bottom: 8px;">⚡ Важно: Очистка кэша браузера</p>
+                <p style="color: #856404; line-height: 1.6;">
+                    После обновления системы необходимо очистить кэш браузера для загрузки новой версии страниц:
+                </p>
+                <ul style="color: #856404; margin: 10px 0 10px 20px; line-height: 1.8;">
+                    <li><strong>Windows/Linux:</strong> нажмите <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 3px;">Ctrl + Shift + R</code></li>
+                    <li><strong>Mac:</strong> нажмите <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 3px;">Cmd + Shift + R</code></li>
+                </ul>
+                <p style="color: #856404; line-height: 1.6; margin-top: 10px;">
+                    Это обеспечит корректную работу автоматической отправки PDF через WhatsApp.
+                </p>
+            </div>
+        </div>
+
+        <!-- Payment Settings -->
+        <div class="settings-section">
+            <h2>💳 Платежные реквизиты по умолчанию</h2>
+            <form id="paymentForm">
+                <div class="form-group">
+                    <label for="defaultCardNumber">Номер карты</label>
+                    <input type="text" id="defaultCardNumber" placeholder="2200 7000 0000 0000">
+                </div>
+                <div class="form-group">
+                    <label for="defaultSbpPhone">СБП номер телефона</label>
+                    <input type="tel" id="defaultSbpPhone" placeholder="+79001234567">
+                </div>
+                <div class="form-group">
+                    <label for="defaultSbpBank">СБП банк</label>
+                    <input type="text" id="defaultSbpBank" placeholder="Например: Сбербанк">
+                </div>
+                <button type="submit" class="btn btn-primary">💾 Сохранить реквизиты</button>
+            </form>
+            <div class="info-box">
+                <p>💡 Эти данные будут автоматически подставляться при создании новых счетов</p>
+            </div>
+        </div>
+
+        <!-- System Info -->
+        <div class="settings-section">
+            <h2>ℹ️ Информация о системе</h2>
+            <div class="setting-row">
+                <div class="setting-label">
+                    <h3>Яндекс.Диск</h3>
+                    <p>Статус подключения к облачному хранилищу</p>
+                </div>
+                <div class="setting-value">
+                    <span class="status-badge" id="yandexStatus">Загрузка...</span>
+                </div>
+            </div>
+            <div class="setting-row">
+                <div class="setting-label">
+                    <h3>База данных</h3>
+                    <p>Локальное хранение данных</p>
+                </div>
+                <div class="setting-value">
+                    <span class="status-badge status-active">✓ Активна</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- About -->
+        <div class="settings-section">
+            <h2>📝 О программе</h2>
+            <div class="setting-row">
+                <div class="setting-label">
+                    <h3>Генератор счетов</h3>
+                    <p>Версия 1.0.0</p>
+                </div>
+            </div>
+            <div class="info-box">
+                <p>📄 Система для создания и управления счетами с поддержкой WhatsApp интеграции, управления складом и аналитикой доходности</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Toggle dropdown menu
+        function toggleMenu() {
+            const menu = document.getElementById('dropdownMenu');
+            menu.classList.toggle('show');
+        }
+
+        // Close menu when clicking outside
+        window.onclick = function(event) {
+            if (!event.target.matches('.menu-button')) {
+                const menu = document.getElementById('dropdownMenu');
+                if (menu.classList.contains('show')) {
+                    menu.classList.remove('show');
+                }
+            }
+        }
+
+        // Load WhatsApp message settings from localStorage
+        function loadWhatsAppSettings() {
+            const settings = JSON.parse(localStorage.getItem('whatsappMessageSettings') || '{}');
+            const defaultMessage = 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.';
+            document.getElementById('whatsappGreeting').value = settings.greeting || defaultMessage;
+        }
+
+        // Save WhatsApp message settings
+        document.getElementById('whatsappForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            const settings = {
+                greeting: document.getElementById('whatsappGreeting').value
+            };
+
+            localStorage.setItem('whatsappMessageSettings', JSON.stringify(settings));
+            alert('✅ Сообщение WhatsApp сохранено!');
+        });
+
+        // Load default payment settings from localStorage
+        function loadPaymentSettings() {
+            const settings = JSON.parse(localStorage.getItem('defaultPaymentSettings') || '{}');
+            if (settings.cardNumber) document.getElementById('defaultCardNumber').value = settings.cardNumber;
+            if (settings.sbpPhone) document.getElementById('defaultSbpPhone').value = settings.sbpPhone;
+            if (settings.sbpBank) document.getElementById('defaultSbpBank').value = settings.sbpBank;
+        }
+
+        // Save payment settings
+        document.getElementById('paymentForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            const settings = {
+                cardNumber: document.getElementById('defaultCardNumber').value,
+                sbpPhone: document.getElementById('defaultSbpPhone').value,
+                sbpBank: document.getElementById('defaultSbpBank').value
+            };
+
+            localStorage.setItem('defaultPaymentSettings', JSON.stringify(settings));
+            alert('✅ Настройки сохранены!');
+        });
+
+        // Check Yandex.Disk status
+        async function checkYandexStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                const statusElement = document.getElementById('yandexStatus');
+
+                if (data.yandexConfigured) {
+                    statusElement.textContent = '✓ Подключен';
+                    statusElement.className = 'status-badge status-active';
+                } else {
+                    statusElement.textContent = '✗ Не настроен';
+                    statusElement.className = 'status-badge status-inactive';
+                }
+            } catch (error) {
+                document.getElementById('yandexStatus').textContent = '✗ Ошибка';
+                document.getElementById('yandexStatus').className = 'status-badge status-inactive';
+            }
+        }
+
+        // Load on start
+        loadWhatsAppSettings();
+        loadPaymentSettings();
+        checkYandexStatus();
+    </script>
+</body>
+</html>

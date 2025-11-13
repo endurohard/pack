@@ -1,0 +1,50 @@
+# Dependencies
+node_modules
+npm-debug.log
+package-lock.json
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Environment
+.env
+.env.*
+
+# Data directories (будут монтироваться как volumes)
+data/
+invoices/*.pdf
+uploads/
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Output
+output/
+
+# Documentation
+*.md
+README.md
+CHANGELOG.md
+
+# IDE
+.DS_Store
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Logs
+logs/
+*.log
+
+# Misc
+.editorconfig
+.prettierrc
+.eslintrc

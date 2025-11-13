@@ -1,0 +1,1407 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Генератор счетов</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        /* Dropdown Menu Styles */
+        .nav-menu {
+            position: relative;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+
+        .menu-button {
+            background: white;
+            color: #667eea;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .menu-button:hover {
+            background: #f8f9fa;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            background: white;
+            min-width: 220px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            border-radius: 8px;
+            z-index: 1000;
+            margin-top: 5px;
+            overflow: hidden;
+        }
+
+        .dropdown-content.show {
+            display: block;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .dropdown-content a {
+            color: #333;
+            padding: 14px 20px;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .dropdown-content a:hover {
+            background: #f8f9fa;
+            border-left-color: #667eea;
+        }
+
+        .dropdown-content a.active {
+            background: #e3f2fd;
+            border-left-color: #667eea;
+            font-weight: 600;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e8ed;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .items-container {
+            border: 2px dashed #e1e8ed;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+
+        .item-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr auto;
+            gap: 10px;
+            margin-bottom: 15px;
+            align-items: end;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .btn-danger {
+            background: #ff4757;
+            color: white;
+            padding: 8px 12px;
+            font-size: 14px;
+        }
+
+        .btn-danger:hover {
+            background: #ff3838;
+        }
+
+        .discount-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+        }
+
+        .discount-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 2fr;
+            gap: 15px;
+        }
+
+        .actions {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 30px;
+        }
+
+        .alert {
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert a {
+            color: inherit;
+            font-weight: bold;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.8);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 2% auto;
+            padding: 0;
+            border-radius: 12px;
+            width: 95%;
+            max-width: 900px;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px 12px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.5em;
+        }
+
+        .close {
+            color: white;
+            font-size: 35px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .close:hover {
+            opacity: 0.7;
+        }
+
+        .modal-body {
+            flex: 1;
+            overflow: hidden;
+            padding: 20px;
+        }
+
+        .pdf-viewer {
+            width: 100%;
+            height: 100%;
+            border: none;
+            border-radius: 8px;
+        }
+
+        .modal-footer {
+            padding: 20px;
+            border-top: 2px solid #e1e8ed;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+
+        .btn-print {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-print:hover {
+            background: #45a049;
+        }
+
+        .btn-download {
+            background: #2196F3;
+            color: white;
+        }
+
+        .btn-download:hover {
+            background: #0b7dda;
+        }
+
+        .btn-success {
+            background: #25D366;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #20BA5A;
+        }
+
+        @media (max-width: 768px) {
+            .item-row {
+                grid-template-columns: 1fr;
+            }
+
+            .discount-row {
+                grid-template-columns: 1fr;
+            }
+
+            .actions {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+            }
+
+            .modal-content {
+                width: 100%;
+                height: 100vh;
+                margin: 0;
+                border-radius: 0;
+            }
+
+            .modal-header {
+                border-radius: 0;
+            }
+
+            .modal-footer {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Dropdown Navigation Menu -->
+        <div class="nav-menu">
+            <button class="menu-button" onclick="toggleMenu()">
+                ☰ Меню
+            </button>
+            <div class="dropdown-content" id="dropdownMenu">
+                <a href="/" class="active">📄 Создать счет</a>
+                <a href="/invoices">📊 Список счетов</a>
+                <a href="/clients">👥 Клиенты</a>
+                <a href="/warehouse">📦 Склад</a>
+                <a href="/analytics">📈 Аналитика</a>
+                <a href="/settings">⚙️ Настройки</a>
+            </div>
+        </div>
+
+        <div class="header">
+            <h1>📄 Генератор счетов</h1>
+            <p>Создавайте профессиональные счета с автоматической загрузкой на Яндекс.Диск</p>
+        </div>
+
+        <div class="content">
+            <div id="alert" class="alert"></div>
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>Создание счета...</p>
+            </div>
+
+            <form id="invoiceForm">
+                <div class="form-group">
+                    <label for="invoiceNumber">Номер счета *</label>
+                    <input type="number" id="invoiceNumber" required min="1" value="1">
+                </div>
+
+                <div class="form-group">
+                    <label for="clientName">Клиент (предприятие/ИП/физ.лицо) *</label>
+                    <input type="text" id="clientName" required placeholder="Например: ООО Рога и Копыта" list="clientsList" oninput="loadClientPhone(this.value)">
+                    <datalist id="clientsList">
+                    </datalist>
+                    <small style="color: #666; display: block; margin-top: 5px;">Начните вводить или выберите из списка</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="clientPhone">Телефон клиента (для WhatsApp)</label>
+                    <input type="tel" id="clientPhone" placeholder="+79001234567 или 9001234567">
+                    <small style="color: #666; display: block; margin-top: 5px;">Укажите для отправки счета в WhatsApp</small>
+                </div>
+
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="isRecurring">
+                        <label for="isRecurring" style="margin: 0;">Ежемесячная оплата (абонемент)</label>
+                    </div>
+                    <small style="color: #666; display: block; margin-top: 5px;">Отметьте для регулярных платежей</small>
+                </div>
+
+                <div class="items-container">
+                    <h3 style="margin-bottom: 15px;">Позиции счета</h3>
+                    <div id="itemsContainer">
+                        <div class="item-row">
+                            <div>
+                                <label>Наименование</label>
+                                <input type="text" class="item-name" required placeholder="Название услуги (выберите из списка)" list="productsList" oninput="fillItemFromProduct(this)">
+                            </div>
+                            <div>
+                                <label>Ед. изм.</label>
+                                <input type="text" class="item-unit" required placeholder="шт, час, мес" value="шт">
+                            </div>
+                            <div>
+                                <label>Количество</label>
+                                <input type="number" class="item-quantity" required min="0.01" step="0.01" value="1">
+                            </div>
+                            <div>
+                                <label>Цена</label>
+                                <input type="number" class="item-price" required min="0.01" step="0.01" value="1000">
+                            </div>
+                            <div>
+                                <label>&nbsp;</label>
+                                <button type="button" class="btn btn-danger" onclick="removeItem(this)">✕</button>
+                            </div>
+                        </div>
+                        <datalist id="productsList">
+                        </datalist>
+                    </div>
+                    <button type="button" class="btn btn-secondary" onclick="addItem()">+ Добавить позицию</button>
+                </div>
+
+                <div class="discount-section">
+                    <h3 style="margin-bottom: 15px;">Скидка (опционально)</h3>
+                    <div class="discount-row">
+                        <div>
+                            <label for="discountType">Тип скидки</label>
+                            <select id="discountType">
+                                <option value="">Без скидки</option>
+                                <option value="percent">Процентная</option>
+                                <option value="fixed">Фиксированная</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="discountValue">Значение</label>
+                            <input type="number" id="discountValue" min="0" step="0.01" placeholder="10">
+                        </div>
+                        <div>
+                            <label for="discountDescription">Описание</label>
+                            <input type="text" id="discountDescription" placeholder="Скидка постоянного клиента">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Платежные данные</label>
+                    <input type="text" id="cardNumber" required placeholder="Номер карты (например: 5280-4137-5406-3845)" value="5280-4137-5406-3845">
+                </div>
+
+                <div class="form-group">
+                    <input type="text" id="sbpPhone" required placeholder="Телефон для СБП (например: 9633707007)" value="9633707007">
+                </div>
+
+                <div class="form-group">
+                    <input type="text" id="sbpBank" required placeholder="Название банка для СБП (например: ТИНЬКОФФ)" value="ТИНЬКОФФ">
+                </div>
+
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="uploadToYandex" checked>
+                        <label for="uploadToYandex" style="margin: 0;">Загрузить на Яндекс.Диск</label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="getPublicLink">
+                        <label for="getPublicLink" style="margin: 0;">Получить публичную ссылку</label>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button type="submit" class="btn btn-primary">🚀 Создать счет</button>
+                    <button type="button" class="btn btn-secondary" onclick="resetForm()">🔄 Очистить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Модальное окно для просмотра PDF -->
+    <div id="pdfModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Предпросмотр счета</h2>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <iframe id="pdfViewer" class="pdf-viewer"></iframe>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-print" onclick="printPDF()">🖨️ Печать</button>
+                <button class="btn btn-download" onclick="downloadPDF()">💾 Сохранить</button>
+                <button class="btn btn-success" id="whatsappBtn" onclick="sendWhatsApp()" style="display: none;">📱 WhatsApp</button>
+                <button class="btn btn-secondary" onclick="closeModal()">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentPdfUrl = '';
+        let currentFilename = '';
+        let currentClientPhone = '';
+        let currentInvoiceNumber = '';
+        let warehouseProducts = [];
+        let clientsList = [];
+        let clientsData = {}; // Для хранения данных клиентов с телефонами
+
+        function openModal(pdfUrl, filename, invoiceNumber) {
+            currentPdfUrl = pdfUrl;
+            currentFilename = filename;
+            currentInvoiceNumber = invoiceNumber;
+            currentClientPhone = document.getElementById('clientPhone').value;
+
+            document.getElementById('modalTitle').textContent = `Счет №${invoiceNumber}`;
+            document.getElementById('pdfViewer').src = pdfUrl;
+            document.getElementById('pdfModal').style.display = 'block';
+
+            // Показываем кнопку WhatsApp если есть телефон
+            const whatsappBtn = document.getElementById('whatsappBtn');
+            if (currentClientPhone) {
+                whatsappBtn.style.display = 'inline-block';
+            } else {
+                whatsappBtn.style.display = 'none';
+            }
+
+            // Блокируем скролл body
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            document.getElementById('pdfModal').style.display = 'none';
+            document.getElementById('pdfViewer').src = '';
+            document.body.style.overflow = 'auto';
+        }
+
+        function printPDF() {
+            const iframe = document.getElementById('pdfViewer');
+            iframe.contentWindow.print();
+        }
+
+        async function downloadPDF() {
+            try {
+                // Проверяем поддержку File System Access API
+                if ('showSaveFilePicker' in window) {
+                    // Современный способ с выбором места сохранения
+                    const handle = await window.showSaveFilePicker({
+                        suggestedName: currentFilename,
+                        types: [{
+                            description: 'PDF файл',
+                            accept: { 'application/pdf': ['.pdf'] }
+                        }]
+                    });
+
+                    const response = await fetch(currentPdfUrl);
+                    const blob = await response.blob();
+                    const writable = await handle.createWritable();
+                    await writable.write(blob);
+                    await writable.close();
+
+                    alert('✅ Файл успешно сохранен!');
+                } else {
+                    // Старый способ (автоматическая загрузка)
+                    const link = document.createElement('a');
+                    link.href = currentPdfUrl;
+                    link.download = currentFilename;
+                    link.click();
+                }
+            } catch (error) {
+                if (error.name !== 'AbortError') {
+                    console.error('Ошибка сохранения:', error);
+                    // Fallback на обычную загрузку
+                    const link = document.createElement('a');
+                    link.href = currentPdfUrl;
+                    link.download = currentFilename;
+                    link.click();
+                }
+            }
+        }
+
+        // Закрытие по клику вне модального окна
+        window.onclick = function(event) {
+            const modal = document.getElementById('pdfModal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+
+        // Закрытие по ESC
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeModal();
+            }
+        });
+
+        function addItem() {
+            const container = document.getElementById('itemsContainer');
+            const itemRow = document.createElement('div');
+            itemRow.className = 'item-row';
+            itemRow.innerHTML = `
+                <div>
+                    <label>Наименование</label>
+                    <input type="text" class="item-name" required placeholder="Название услуги (выберите из списка)" list="productsList" oninput="fillItemFromProduct(this)">
+                </div>
+                <div>
+                    <label>Ед. изм.</label>
+                    <input type="text" class="item-unit" required placeholder="шт, час, мес" value="шт">
+                </div>
+                <div>
+                    <label>Количество</label>
+                    <input type="number" class="item-quantity" required min="0.01" step="0.01" value="1">
+                </div>
+                <div>
+                    <label>Цена</label>
+                    <input type="number" class="item-price" required min="0.01" step="0.01" value="1000">
+                </div>
+                <div>
+                    <label>&nbsp;</label>
+                    <button type="button" class="btn btn-danger" onclick="removeItem(this)">✕</button>
+                </div>
+            `;
+            container.appendChild(itemRow);
+        }
+
+        // Добавить позицию с данными (для редактирования)
+        function addItemRow(item) {
+            const container = document.getElementById('itemsContainer');
+            const itemRow = document.createElement('div');
+            itemRow.className = 'item-row';
+            itemRow.innerHTML = `
+                <div>
+                    <label>Наименование</label>
+                    <input type="text" class="item-name" required placeholder="Название услуги (выберите из списка)" list="productsList" oninput="fillItemFromProduct(this)" value="${item.name || ''}">
+                </div>
+                <div>
+                    <label>Ед. изм.</label>
+                    <input type="text" class="item-unit" required placeholder="шт, час, мес" value="${item.unit || 'шт'}">
+                </div>
+                <div>
+                    <label>Количество</label>
+                    <input type="number" class="item-quantity" required min="0.01" step="0.01" value="${item.quantity || 1}">
+                </div>
+                <div>
+                    <label>Цена</label>
+                    <input type="number" class="item-price" required min="0.01" step="0.01" value="${item.price || 1000}">
+                </div>
+                <div>
+                    <label>&nbsp;</label>
+                    <button type="button" class="btn btn-danger" onclick="removeItem(this)">✕</button>
+                </div>
+            `;
+            container.appendChild(itemRow);
+        }
+
+        function removeItem(button) {
+            const container = document.getElementById('itemsContainer');
+            if (container.children.length > 1) {
+                button.closest('.item-row').remove();
+            } else {
+                alert('Должна быть хотя бы одна позиция');
+            }
+        }
+
+        function resetForm() {
+            document.getElementById('invoiceForm').reset();
+            const container = document.getElementById('itemsContainer');
+            while (container.children.length > 1) {
+                container.removeChild(container.lastChild);
+            }
+        }
+
+        function showAlert(message, type) {
+            const alert = document.getElementById('alert');
+            alert.className = `alert alert-${type}`;
+            alert.innerHTML = message;
+            alert.style.display = 'block';
+            setTimeout(() => {
+                alert.style.display = 'none';
+            }, 10000);
+        }
+
+        // Загрузка товаров из склада
+        // Сохранение клиента в базу данных
+        async function saveClientToDatabase(clientName, clientPhone) {
+            try {
+                // Проверяем, есть ли уже такой клиент
+                if (clientsData[clientName]) {
+                    console.log('Клиент уже существует в базе');
+                    return;
+                }
+
+                // Сохраняем нового клиента
+                const response = await fetch('/api/clients', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: clientName,
+                        phone: clientPhone
+                    })
+                });
+
+                if (response.ok) {
+                    console.log('✅ Клиент автоматически сохранен в базу');
+                    // Перезагружаем список клиентов
+                    await loadClients();
+                }
+            } catch (error) {
+                console.log('Ошибка сохранения клиента:', error);
+            }
+        }
+
+        async function loadWarehouseProducts() {
+            try {
+                const response = await fetch('/api/warehouse/products');
+                const data = await response.json();
+                warehouseProducts = data.products;
+
+                // Заполняем datalist
+                const datalist = document.getElementById('productsList');
+                datalist.innerHTML = '';
+                warehouseProducts.forEach(product => {
+                    const option = document.createElement('option');
+                    option.value = product.name;
+                    option.setAttribute('data-id', product.id);
+                    datalist.appendChild(option);
+                });
+
+                console.log(`✅ Загружено товаров/услуг из склада: ${warehouseProducts.length}`);
+                if (warehouseProducts.length === 0) {
+                    console.log('💡 Добавьте товары в склад: http://localhost:3000/warehouse');
+                }
+            } catch (error) {
+                console.log('⚠️ Склад пуст или недоступен:', error);
+            }
+        }
+
+        // Отправка в WhatsApp
+        async function sendWhatsApp() {
+            if (!currentClientPhone) {
+                alert('Не указан номер телефона клиента');
+                return;
+            }
+
+            if (!currentInvoiceNumber) {
+                alert('Сначала создайте счет');
+                return;
+            }
+
+            // Очищаем номер телефона от лишних символов
+            let phone = currentClientPhone.replace(/[^0-9]/g, '');
+
+            // Если номер начинается с 8, заменяем на 7
+            if (phone.startsWith('8')) {
+                phone = '7' + phone.substring(1);
+            }
+
+            // Если номер не начинается с 7, добавляем 7
+            if (!phone.startsWith('7')) {
+                phone = '7' + phone;
+            }
+
+            // Загружаем шаблон сообщения из настроек
+            const settings = JSON.parse(localStorage.getItem('whatsappMessageSettings') || '{}');
+            const defaultMessage = 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.';
+            const messageTemplate = settings.greeting || defaultMessage;
+
+            // Формируем сообщение, заменяя {номер} на фактический номер счета
+            const message = messageTemplate.replace('{номер}', currentInvoiceNumber);
+
+            // Используем серверную интеграцию WhatsApp для отправки файла
+            try {
+                showNotification('📤 Отправка...', `Отправляем счет клиенту через WhatsApp`);
+
+                const response = await fetch('/api/whatsapp/send-file', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        phone,
+                        message,
+                        invoiceId: currentInvoiceNumber
+                    })
+                });
+
+                let result;
+                try {
+                    const text = await response.text();
+                    if (text) {
+                        result = JSON.parse(text);
+                    } else {
+                        result = { error: 'Сервер вернул пустой ответ' };
+                    }
+                } catch (parseError) {
+                    console.error('Ошибка парсинга ответа:', parseError);
+                    result = { error: 'Неверный формат ответа от сервера' };
+                }
+
+                if (response.ok && result.success) {
+                    showNotification('✅ Счет отправлен!', `PDF файл отправлен клиенту через WhatsApp`);
+                    return;
+                } else {
+                    const errorMsg = result.error || 'WhatsApp не инициализирован';
+                    console.error('Ошибка серверной интеграции:', errorMsg);
+                    alert(`❌ Ошибка отправки через WhatsApp:\n\n${errorMsg}\n\nПроверьте логи сервера для подробностей.`);
+                }
+            } catch (error) {
+                console.error('Ошибка серверной интеграции:', error);
+                alert(`❌ Ошибка подключения к серверу WhatsApp:\n\n${error.message}\n\nУбедитесь, что сервер запущен.`);
+            }
+        }
+
+        // Старая функция для открытия WhatsApp Web в iframe (оставляем на случай fallback)
+        function sendWhatsAppOld() {
+            if (!currentClientPhone) {
+                alert('Не указан номер телефона клиента');
+                return;
+            }
+
+            // Очищаем номер телефона от лишних символов
+            let phone = currentClientPhone.replace(/[^0-9]/g, '');
+
+            // Если номер начинается с 8, заменяем на 7
+            if (phone.startsWith('8')) {
+                phone = '7' + phone.substring(1);
+            }
+
+            // Если номер не начинается с 7, добавляем 7
+            if (!phone.startsWith('7')) {
+                phone = '7' + phone;
+            }
+
+            // Загружаем шаблон сообщения из настроек
+            const settings = JSON.parse(localStorage.getItem('whatsappMessageSettings') || '{}');
+            const defaultMessage = 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.';
+            const messageTemplate = settings.greeting || defaultMessage;
+
+            // Формируем сообщение, заменяя {номер} на фактический номер счета
+            const message = messageTemplate.replace('{номер}', currentInvoiceNumber);
+
+            // Открываем WhatsApp Web в новом окне с iframe
+            const whatsappUrl = `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`;
+
+            // Создаем popup окно с большим размером для удобства
+            const whatsappWindow = window.open('', 'whatsapp', 'width=1400,height=900,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes');
+
+            // Создаем HTML с iframe и инструкциями
+            whatsappWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>WhatsApp Web - Отправка счета</title>
+                    <style>
+                        body {
+                            margin: 0;
+                            padding: 0;
+                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+                            background: #f0f2f5;
+                            display: flex;
+                            flex-direction: column;
+                            height: 100vh;
+                            overflow: hidden;
+                        }
+                        .header {
+                            background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
+                            color: white;
+                            padding: 15px 25px;
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+                            z-index: 10;
+                        }
+                        .header-left {
+                            display: flex;
+                            align-items: center;
+                            gap: 12px;
+                        }
+                        .header h2 {
+                            margin: 0;
+                            font-size: 18px;
+                            font-weight: 600;
+                        }
+                        .info-box {
+                            background: #E3F2FD;
+                            border-left: 4px solid #2196F3;
+                            padding: 12px 20px;
+                            margin: 15px;
+                            border-radius: 6px;
+                            font-size: 13px;
+                            color: #1976D2;
+                            line-height: 1.6;
+                        }
+                        .info-box strong {
+                            display: block;
+                            margin-bottom: 6px;
+                            font-size: 14px;
+                        }
+                        .iframe-container {
+                            flex: 1;
+                            position: relative;
+                            margin: 0 15px 15px 15px;
+                            border-radius: 12px;
+                            overflow: hidden;
+                            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+                            background: white;
+                        }
+                        iframe {
+                            width: 100%;
+                            height: 100%;
+                            border: none;
+                            display: block;
+                        }
+                        .btn-close {
+                            background: rgba(255,255,255,0.2);
+                            color: white;
+                            border: 2px solid white;
+                            padding: 8px 20px;
+                            border-radius: 6px;
+                            cursor: pointer;
+                            font-weight: 600;
+                            font-size: 14px;
+                            transition: all 0.3s;
+                        }
+                        .btn-close:hover {
+                            background: white;
+                            color: #25D366;
+                        }
+                        .loading {
+                            position: absolute;
+                            top: 50%;
+                            left: 50%;
+                            transform: translate(-50%, -50%);
+                            text-align: center;
+                            color: #666;
+                            z-index: 1;
+                        }
+                        .spinner {
+                            border: 4px solid #f3f3f3;
+                            border-top: 4px solid #25D366;
+                            border-radius: 50%;
+                            width: 50px;
+                            height: 50px;
+                            animation: spin 1s linear infinite;
+                            margin: 0 auto 15px;
+                        }
+                        @keyframes spin {
+                            0% { transform: rotate(0deg); }
+                            100% { transform: rotate(360deg); }
+                        }
+                        .whatsapp-icon {
+                            font-size: 24px;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <div class="header-left">
+                            <span class="whatsapp-icon">💬</span>
+                            <h2>WhatsApp Web - Отправка счета №${currentInvoiceNumber}</h2>
+                        </div>
+                        <button class="btn-close" onclick="window.close()">✕ Закрыть</button>
+                    </div>
+                    <div class="info-box">
+                        <strong>📋 Инструкция по отправке:</strong>
+                        <b>1.</b> Отсканируйте QR-код через WhatsApp на телефоне (Настройки → Связанные устройства)<br>
+                        <b>2.</b> После авторизации сообщение автоматически заполнится в чате с клиентом<br>
+                        <b>3.</b> Отредактируйте текст при необходимости и нажмите отправить<br>
+                        <b>4.</b> Прикрепите PDF файл <code>${currentFilename}</code> через кнопку 📎 в чате
+                    </div>
+                    <div class="iframe-container">
+                        <div class="loading" id="loading">
+                            <div class="spinner"></div>
+                            <p style="font-size: 14px; color: #666;">⏳ Загрузка WhatsApp Web...</p>
+                        </div>
+                        <iframe
+                            src="${whatsappUrl}"
+                            allow="camera; microphone; clipboard-read; clipboard-write"
+                            onload="setTimeout(() => document.getElementById('loading').style.display='none', 2000)"
+                        ></iframe>
+                    </div>
+                </body>
+                </html>
+            `);
+            whatsappWindow.document.close();
+
+            // Показываем уведомление об отправке
+            const clientName = document.getElementById('clientName').value;
+            setTimeout(() => {
+                showNotification('✅ Счет отправлен!', `WhatsApp Web открыт для отправки счета №${currentInvoiceNumber} клиенту ${clientName}`);
+            }, 500);
+        }
+
+        // Функция для показа уведомлений
+        function showNotification(title, message) {
+            // Создаем элемент уведомления
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
+                color: white;
+                padding: 20px 30px;
+                border-radius: 12px;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+                z-index: 10000;
+                max-width: 400px;
+                animation: slideIn 0.3s ease;
+            `;
+
+            notification.innerHTML = `
+                <div style="display: flex; align-items: start; gap: 15px;">
+                    <div style="font-size: 24px;">📱</div>
+                    <div style="flex: 1;">
+                        <div style="font-weight: bold; font-size: 16px; margin-bottom: 5px;">${title}</div>
+                        <div style="font-size: 14px; opacity: 0.95;">${message}</div>
+                    </div>
+                    <button onclick="this.parentElement.parentElement.remove()" style="
+                        background: rgba(255,255,255,0.2);
+                        border: none;
+                        color: white;
+                        font-size: 18px;
+                        cursor: pointer;
+                        padding: 5px 10px;
+                        border-radius: 6px;
+                    ">✕</button>
+                </div>
+            `;
+
+            // Добавляем стиль анимации
+            if (!document.querySelector('#notificationStyle')) {
+                const style = document.createElement('style');
+                style.id = 'notificationStyle';
+                style.textContent = `
+                    @keyframes slideIn {
+                        from {
+                            transform: translateX(400px);
+                            opacity: 0;
+                        }
+                        to {
+                            transform: translateX(0);
+                            opacity: 1;
+                        }
+                    }
+                    @keyframes slideOut {
+                        from {
+                            transform: translateX(0);
+                            opacity: 1;
+                        }
+                        to {
+                            transform: translateX(400px);
+                            opacity: 0;
+                        }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
+            document.body.appendChild(notification);
+
+            // Автоматически удаляем уведомление через 5 секунд
+            setTimeout(() => {
+                notification.style.animation = 'slideOut 0.3s ease';
+                setTimeout(() => notification.remove(), 300);
+            }, 5000);
+        }
+
+        // Загрузка телефона при выборе клиента
+        function loadClientPhone(clientName) {
+            if (clientsData[clientName] && clientsData[clientName].phone) {
+                document.getElementById('clientPhone').value = clientsData[clientName].phone;
+            }
+        }
+
+        // Загрузка списка клиентов из базы данных
+        async function loadClients() {
+            try {
+                const response = await fetch('/api/clients');
+                const data = await response.json();
+
+                // Собираем данные клиентов с телефонами
+                data.clients.forEach(client => {
+                    if (client.name) {
+                        clientsData[client.name] = {
+                            phone: client.phone || '',
+                            email: client.email || '',
+                            address: client.address || ''
+                        };
+                    }
+                });
+
+                clientsList = data.clients.map(c => c.name);
+
+                // Заполняем datalist
+                const datalist = document.getElementById('clientsList');
+                datalist.innerHTML = '';
+                data.clients.forEach(client => {
+                    const option = document.createElement('option');
+                    option.value = client.name;
+                    datalist.appendChild(option);
+                });
+
+                console.log(`✅ Загружено клиентов из базы: ${data.clients.length}`);
+            } catch (error) {
+                console.log('⚠️ Ошибка загрузки клиентов:', error);
+            }
+        }
+
+        // Автозаполнение данных товара
+        function fillItemFromProduct(input) {
+            const productName = input.value;
+            const product = warehouseProducts.find(p => p.name === productName);
+
+            if (product) {
+                const row = input.closest('.item-row');
+                row.querySelector('.item-unit').value = product.unit;
+                row.querySelector('.item-price').value = product.sellingPrice;
+            }
+        }
+
+        // Переменная для хранения ID редактируемого счета
+        let editingInvoiceId = null;
+
+        // Функция для загрузки данных счета для редактирования
+        async function loadInvoiceForEdit(invoiceId) {
+            try {
+                const response = await fetch(`/api/invoices/${invoiceId}`);
+                const result = await response.json();
+
+                if (response.ok && result.invoice) {
+                    const invoice = result.invoice;
+                    editingInvoiceId = invoiceId;
+
+                    // Изменяем заголовок
+                    document.querySelector('.header h1').textContent = `✏️ Редактирование счета №${invoice.invoiceNumber}`;
+                    document.querySelector('.header p').textContent = 'Внесите изменения и сохраните';
+
+                    // Заполняем основные поля
+                    document.getElementById('invoiceNumber').value = invoice.invoiceNumber;
+                    document.getElementById('clientName').value = invoice.client || '';
+                    document.getElementById('clientPhone').value = invoice.clientPhone || '';
+                    document.getElementById('isRecurring').checked = invoice.isRecurring || false;
+
+                    // Заполняем платежные данные
+                    if (invoice.payment) {
+                        document.getElementById('cardNumber').value = invoice.payment.cardNumber || '';
+                        document.getElementById('sbpPhone').value = invoice.payment.sbpPhone || '';
+                        document.getElementById('sbpBank').value = invoice.payment.sbpBank || '';
+                    }
+
+                    // Очищаем текущие товары
+                    document.getElementById('itemsContainer').innerHTML = '';
+
+                    // Добавляем товары из счета
+                    invoice.items.forEach(item => {
+                        addItemRow(item);
+                    });
+
+                    // Заполняем скидку, если есть
+                    if (invoice.discount) {
+                        document.getElementById('discountType').value = invoice.discount.type;
+                        document.getElementById('discountValue').value = invoice.discount.value;
+                        document.getElementById('discountDescription').value = invoice.discount.description || '';
+                    }
+
+                    // Изменяем текст кнопки
+                    document.querySelector('button[type="submit"]').textContent = '💾 Сохранить изменения';
+                } else {
+                    alert('Ошибка загрузки счета');
+                }
+            } catch (error) {
+                alert('Ошибка загрузки счета: ' + error.message);
+            }
+        }
+
+        // Проверяем URL на наличие параметра edit
+        const urlParams = new URLSearchParams(window.location.search);
+        const editId = urlParams.get('edit');
+
+        // Toggle dropdown menu
+        function toggleMenu() {
+            const menu = document.getElementById('dropdownMenu');
+            menu.classList.toggle('show');
+        }
+
+        // Close menu when clicking outside
+        window.onclick = function(event) {
+            if (!event.target.matches('.menu-button')) {
+                const menu = document.getElementById('dropdownMenu');
+                if (menu.classList.contains('show')) {
+                    menu.classList.remove('show');
+                }
+            }
+        }
+
+        // Загружаем следующий номер счета автоматически
+        async function loadNextInvoiceNumber() {
+            // Если редактируем, не меняем номер
+            if (editId) return;
+
+            try {
+                const response = await fetch('/api/invoice-counter/next');
+                const data = await response.json();
+                document.getElementById('invoiceNumber').value = data.number;
+            } catch (error) {
+                console.error('Ошибка загрузки номера счета:', error);
+            }
+        }
+
+        // Загружаем данные при старте
+        loadWarehouseProducts();
+        loadClients();
+        loadNextInvoiceNumber();
+
+        if (editId) {
+            loadInvoiceForEdit(editId);
+        }
+
+        document.getElementById('invoiceForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            // Собираем данные формы
+            const items = [];
+            document.querySelectorAll('.item-row').forEach(row => {
+                const name = row.querySelector('.item-name').value;
+                const unit = row.querySelector('.item-unit').value;
+                const quantity = parseFloat(row.querySelector('.item-quantity').value);
+                const price = parseFloat(row.querySelector('.item-price').value);
+                items.push({ name, unit, quantity, price });
+            });
+
+            const data = {
+                invoiceNumber: parseInt(document.getElementById('invoiceNumber').value),
+                clientName: document.getElementById('clientName').value,
+                clientPhone: document.getElementById('clientPhone').value,
+                isRecurring: document.getElementById('isRecurring').checked,
+                items: items,
+                payment: {
+                    cardNumber: document.getElementById('cardNumber').value,
+                    sbpPhone: document.getElementById('sbpPhone').value,
+                    sbpBank: document.getElementById('sbpBank').value
+                },
+                uploadToYandex: document.getElementById('uploadToYandex').checked,
+                getPublicLink: document.getElementById('getPublicLink').checked
+            };
+
+            // Добавляем скидку, если указана
+            const discountType = document.getElementById('discountType').value;
+            const discountValue = parseFloat(document.getElementById('discountValue').value);
+            if (discountType && discountValue) {
+                data.discount = {
+                    type: discountType,
+                    value: discountValue,
+                    description: document.getElementById('discountDescription').value
+                };
+            }
+
+            // Показываем загрузку
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('alert').style.display = 'none';
+
+            try {
+                // Определяем метод и URL в зависимости от режима (создание или редактирование)
+                const isEditing = editingInvoiceId !== null;
+                const method = isEditing ? 'PUT' : 'POST';
+                const url = isEditing ? `/api/invoices/${editingInvoiceId}` : '/api/invoice';
+
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    // Автоматически сохраняем клиента в базу, если его там нет
+                    if (data.clientName && data.clientPhone && !isEditing) {
+                        await saveClientToDatabase(data.clientName, data.clientPhone);
+                    }
+
+                    // Открываем модальное окно с PDF
+                    openModal(`/view/${result.filename}`, result.filename, data.invoiceNumber);
+
+                    // Показываем сообщение об успехе
+                    let message = isEditing
+                        ? `✅ Счет №${data.invoiceNumber} успешно обновлен!<br>`
+                        : `✅ Счет №${data.invoiceNumber} успешно создан!<br>`;
+
+                    if (result.yandexPath) {
+                        message += `☁️ Загружено на Яндекс.Диск: ${result.yandexPath}<br>`;
+                    }
+
+                    if (result.publicUrl) {
+                        message += `🔗 Публичная ссылка: <a href="${result.publicUrl}" target="_blank">${result.publicUrl}</a>`;
+                    }
+
+                    showAlert(message, 'success');
+
+                    // Если редактировали, сбрасываем режим редактирования
+                    if (isEditing) {
+                        editingInvoiceId = null;
+                        document.querySelector('.header h1').textContent = '📄 Генератор счетов';
+                        document.querySelector('.header p').textContent = 'Простой и быстрый способ создания профессиональных счетов';
+                        document.querySelector('button[type="submit"]').textContent = '📄 Создать счет';
+
+                        // Очищаем URL
+                        window.history.pushState({}, '', '/');
+                    }
+
+                    // Прокручиваем к алерту
+                    document.getElementById('alert').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } else {
+                    showAlert(`❌ Ошибка: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showAlert(`❌ Ошибка: ${error.message}`, 'error');
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>

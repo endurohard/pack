@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Web - Просмотр</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            border-radius: 20px;
+            padding: 20px 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .header h1 {
+            font-size: 1.8em;
+            color: #128C7E;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #25D366;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #128C7E;
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .status-ready {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-loading {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .viewer-container {
+            background: white;
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            min-height: 70vh;
+        }
+
+        .screenshot-container {
+            width: 100%;
+            height: calc(100vh - 250px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #f5f5f5;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .screenshot-img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #25D366;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .info-box {
+            background: #e8f5e9;
+            border-left: 4px solid #25D366;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .info-box p {
+            color: #2e7d32;
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        .refresh-info {
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>
+                <span>📱</span>
+                WhatsApp Web - Просмотр сервера
+            </h1>
+            <div class="controls">
+                <span class="status status-loading" id="status">Загрузка...</span>
+                <button class="btn btn-primary" onclick="refreshScreenshot()">🔄 Обновить</button>
+                <button class="btn btn-secondary" onclick="restartWhatsApp()">🔁 Перезапустить</button>
+                <a href="/" class="btn btn-secondary">🏠 На главную</a>
+            </div>
+        </div>
+
+        <div class="info-box">
+            <p>
+                💡 <strong>Совет:</strong> Это окно показывает текущее состояние WhatsApp Web на сервере.
+                Браузер работает в фоновом режиме. После первой авторизации (сканирования QR-кода)
+                сессия сохраняется и больше не требует повторного входа.
+            </p>
+        </div>
+
+        <div class="viewer-container">
+            <div class="screenshot-container" id="screenshotContainer">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Загрузка снимка экрана WhatsApp Web...</p>
+                </div>
+            </div>
+            <div class="refresh-info">
+                <p>Автоматическое обновление каждые 3 секунды</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let autoRefreshInterval = null;
+
+        // Проверяем статус WhatsApp
+        async function checkStatus() {
+            try {
+                const response = await fetch('/api/whatsapp/status');
+                const status = await response.json();
+
+                const statusEl = document.getElementById('status');
+                if (status.isReady) {
+                    statusEl.textContent = '✅ Готов';
+                    statusEl.className = 'status status-ready';
+                } else if (status.browserActive) {
+                    statusEl.textContent = '⏳ Ожидание авторизации';
+                    statusEl.className = 'status status-loading';
+                } else {
+                    statusEl.textContent = '❌ Не запущен';
+                    statusEl.className = 'status status-error';
+                }
+            } catch (error) {
+                console.error('Ошибка проверки статуса:', error);
+            }
+        }
+
+        // Обновление скриншота
+        async function refreshScreenshot() {
+            const container = document.getElementById('screenshotContainer');
+
+            try {
+                // Создаем новый элемент изображения
+                const img = document.createElement('img');
+                img.className = 'screenshot-img';
+                img.src = '/api/whatsapp/screenshot?' + Date.now(); // Добавляем timestamp для обхода кэша
+
+                img.onload = function() {
+                    container.innerHTML = '';
+                    container.appendChild(img);
+                };
+
+                img.onerror = function() {
+                    container.innerHTML = `
+                        <div class="loading">
+                            <p style="color: #ff4757;">❌ Ошибка загрузки снимка экрана</p>
+                            <p style="color: #666; font-size: 14px; margin-top: 10px;">WhatsApp Web может быть не инициализирован</p>
+                        </div>
+                    `;
+                };
+
+            } catch (error) {
+                console.error('Ошибка обновления:', error);
+                container.innerHTML = `
+                    <div class="loading">
+                        <p style="color: #ff4757;">❌ Ошибка: ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Перезапуск WhatsApp
+        async function restartWhatsApp() {
+            if (!confirm('Вы уверены, что хотите перезапустить WhatsApp Web?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/whatsapp/restart', {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    alert('✅ WhatsApp Web перезапускается...');
+                    setTimeout(() => {
+                        refreshScreenshot();
+                        checkStatus();
+                    }, 5000);
+                } else {
+                    alert('❌ Ошибка перезапуска');
+                }
+            } catch (error) {
+                alert('❌ Ошибка: ' + error.message);
+            }
+        }
+
+        // Автоматическое обновление
+        function startAutoRefresh() {
+            autoRefreshInterval = setInterval(() => {
+                refreshScreenshot();
+                checkStatus();
+            }, 3000); // Каждые 3 секунды
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+        }
+
+        // Запуск при загрузке страницы
+        window.addEventListener('load', () => {
+            checkStatus();
+            refreshScreenshot();
+            startAutoRefresh();
+        });
+
+        // Остановка при уходе со страницы
+        window.addEventListener('beforeunload', () => {
+            stopAutoRefresh();
+        });
+    </script>
+</body>
+</html>

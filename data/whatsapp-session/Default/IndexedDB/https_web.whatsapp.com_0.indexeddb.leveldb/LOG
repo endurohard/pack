@@ -1,0 +1,41 @@
+2025/11/13-18:37:02.806 c77175 Reusing MANIFEST /Users/bagamedovyusup/work/pack/data/whatsapp-session/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/11/13-18:37:02.810 c77175 Recovering log #2728
+2025/11/13-18:37:02.853 c77175 Reusing old log /Users/bagamedovyusup/work/pack/data/whatsapp-session/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/002728.log 
+2025/11/13-18:37:04.354 c77175 Level-0 table #2745: started
+2025/11/13-18:37:04.391 c77175 Level-0 table #2745: 881430 bytes OK
+2025/11/13-18:37:04.394 c77175 Delete type=0 #2728
+2025/11/13-18:37:04.398 c77175 Manual compaction at level-0 from '\x00\xd3\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\xd4\x00\x00\x00' @ 0 : 0; will stop at '\x00\xd3\x00\x00\x05' @ 9800096 : 1
+2025/11/13-18:37:04.399 c77175 Compacting 1@0 + 2@1 files
+2025/11/13-18:37:04.429 c77175 Generated table #2746@0: 22519 keys, 426609 bytes
+2025/11/13-18:37:04.435 c77175 Generated table #2747@0: 80 keys, 57894 bytes
+2025/11/13-18:37:04.501 c77175 Generated table #2748@0: 40324 keys, 965897 bytes
+2025/11/13-18:37:04.501 c77175 Compacted 1@0 + 2@1 files => 1450400 bytes
+2025/11/13-18:37:04.502 c77175 compacted to: files[ 0 3 32 0 0 0 0 ]
+2025/11/13-18:37:04.503 c77175 Delete type=2 #2745
+2025/11/13-18:37:04.504 c77175 Manual compaction at level-0 from '\x00\xd3\x00\x00\x05' @ 9800096 : 1 .. '\x00\xd4\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/11/13-18:37:05.631 c77177 Compacting 1@1 + 10@2 files
+2025/11/13-18:37:05.708 c77177 Generated table #2749@1: 89398 keys, 2241960 bytes
+2025/11/13-18:37:05.842 c77177 Generated table #2750@1: 99269 keys, 2252167 bytes
+2025/11/13-18:37:05.902 c77177 Generated table #2751@1: 59634 keys, 2353339 bytes
+2025/11/13-18:37:05.951 c77177 Generated table #2752@1: 27146 keys, 2192933 bytes
+2025/11/13-18:37:06.001 c77177 Generated table #2753@1: 50909 keys, 2214504 bytes
+2025/11/13-18:37:06.024 c77177 Generated table #2754@1: 4618 keys, 2150002 bytes
+2025/11/13-18:37:06.050 c77177 Generated table #2755@1: 2103 keys, 2144666 bytes
+2025/11/13-18:37:06.070 c77177 Generated table #2756@1: 2049 keys, 2132690 bytes
+2025/11/13-18:37:06.127 c77177 Generated table #2757@1: 35830 keys, 2245099 bytes
+2025/11/13-18:37:06.140 c77177 Generated table #2758@1: 6384 keys, 742375 bytes
+2025/11/13-18:37:06.140 c77177 Compacted 1@1 + 10@2 files => 20669735 bytes
+2025/11/13-18:37:06.142 c77177 compacted to: files[ 0 2 32 0 0 0 0 ]
+2025/11/13-18:37:06.143 c77177 Delete type=2 #2738
+2025/11/13-18:37:06.143 c77177 Delete type=2 #2739
+2025/11/13-18:37:06.143 c77177 Delete type=2 #2742
+2025/11/13-18:37:06.143 c77177 Delete type=2 #2740
+2025/11/13-18:37:06.143 c77177 Delete type=2 #2741
+2025/11/13-18:37:06.143 c77177 Delete type=2 #2746
+2025/11/13-18:37:06.143 c77177 Delete type=2 #2734
+2025/11/13-18:37:06.144 c77177 Delete type=2 #2735
+2025/11/13-18:37:06.144 c77177 Delete type=2 #2737
+2025/11/13-18:37:06.144 c77177 Delete type=2 #2736
+2025/11/13-18:37:06.144 c77177 Delete type=2 #2732
+2025/11/13-18:37:06.144 c77177 Delete type=2 #2733
+2025/11/13-18:37:06.144 c77177 Delete type=2 #2731

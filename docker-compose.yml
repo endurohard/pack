@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  invoice-generator:
+    build: .
+    container_name: invoice-generator
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Раскомментируйте и добавьте ваш токен Яндекс.Диска
+      # - YANDEX_DISK_TOKEN=ваш_токен_здесь
+      # - YANDEX_DISK_FOLDER=/Счета
+    volumes:
+      # Монтируем директории для сохранения данных
+      - ./data:/app/data                      # База данных счетов
+      - ./invoices:/app/invoices              # PDF файлы счетов
+      - ./uploads:/app/uploads                # Загруженные файлы
+      - ./wwebjs_auth:/app/.wwebjs_auth      # WhatsApp авторизация
+      - ./wwebjs_cache:/app/.wwebjs_cache    # WhatsApp кеш
+      # Опционально: монтируем .env файл с токеном
+      # - ./.env:/app/.env:ro
+    restart: unless-stopped
+    security_opt:
+      - seccomp=unconfined  # Необходимо для Puppeteer/Chrome
+    shm_size: '2gb'         # Увеличиваем shared memory для Chrome
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

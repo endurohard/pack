@@ -1,0 +1,74 @@
+[
+  {
+    "id": "1763043119806",
+    "name": "Обслуживание АТС",
+    "type": "product",
+    "unit": "мес",
+    "costPrice": 0,
+    "sellingPrice": 5000,
+    "quantity": 0,
+    "category": "Разное",
+    "description": "",
+    "createdAt": "2025-11-13T14:11:59.806Z"
+  },
+  {
+    "id": "1763023028600",
+    "name": "Резервный номер",
+    "type": "service",
+    "unit": "мес",
+    "costPrice": 860,
+    "sellingPrice": 1450,
+    "quantity": 0,
+    "category": "Услуги",
+    "description": "",
+    "createdAt": "2025-11-13T08:37:08.600Z"
+  },
+  {
+    "id": "1763022996717",
+    "name": "6000 минут исходящей",
+    "type": "service",
+    "unit": "мес",
+    "costPrice": 1800,
+    "sellingPrice": 4500,
+    "quantity": 0,
+    "category": "Услуги",
+    "description": "",
+    "createdAt": "2025-11-13T08:36:36.717Z"
+  },
+  {
+    "id": "1763022957732",
+    "name": "Многоканальность",
+    "type": "service",
+    "unit": "мес",
+    "costPrice": 1350,
+    "sellingPrice": 3150,
+    "quantity": 0,
+    "category": "Услуги",
+    "description": "",
+    "createdAt": "2025-11-13T08:35:57.732Z"
+  },
+  {
+    "id": "1763022920842",
+    "name": "Аренда АТС",
+    "type": "service",
+    "unit": "мес",
+    "costPrice": 0,
+    "sellingPrice": 5700,
+    "quantity": 0,
+    "category": "Поддержка",
+    "description": "",
+    "createdAt": "2025-11-13T08:35:20.842Z"
+  },
+  {
+    "id": "1763043148677",
+    "name": "Пакет минут 6000",
+    "type": "product",
+    "unit": "шт",
+    "costPrice": 1860,
+    "sellingPrice": 5000,
+    "quantity": 0,
+    "category": "Разное",
+    "description": "",
+    "createdAt": "2025-11-13T14:12:28.677Z"
+  }
+]
