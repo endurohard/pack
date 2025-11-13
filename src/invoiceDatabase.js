@@ -52,7 +52,7 @@ class InvoiceDatabase {
       clientPhone: invoiceData.clientPhone || '',
       isRecurring: invoiceData.isRecurring || false,
       payment: invoiceData.payment || null,
-      createdAt: new Date().toISOString(),
+      createdAt: invoiceData.createdAt || new Date().toISOString(),
       paid: false,
       paidAt: null,
       yandexPath: invoiceData.yandexPath || null,
@@ -60,7 +60,9 @@ class InvoiceDatabase {
       // Поля для автоматической рассылки
       nextSendDate: invoiceData.nextSendDate || null, // Дата следующей автоматической отправки
       autoSendEnabled: invoiceData.autoSendEnabled || false, // Включена ли автоматическая рассылка
-      lastSentAt: null // Дата последней автоматической отправки
+      lastSentAt: null, // Дата последней автоматической отправки
+      // Расходы по счету
+      expenses: invoiceData.expenses || [] // Массив расходов: [{id, date, amount, description, category}]
     };
 
     this.invoices.push(invoice);
@@ -221,6 +223,67 @@ class InvoiceDatabase {
       return invoice;
     }
     return null;
+  }
+
+  /**
+   * Добавить расход к счету
+   */
+  addExpense(invoiceId, expenseData) {
+    const invoice = this.getInvoiceById(invoiceId);
+    if (invoice) {
+      if (!invoice.expenses) {
+        invoice.expenses = [];
+      }
+
+      const expense = {
+        id: Date.now().toString(),
+        date: expenseData.date || new Date().toISOString(),
+        amount: expenseData.amount,
+        description: expenseData.description || '',
+        category: expenseData.category || 'Прочее',
+        createdAt: new Date().toISOString()
+      };
+
+      invoice.expenses.push(expense);
+      this.saveData();
+      return expense;
+    }
+    return null;
+  }
+
+  /**
+   * Удалить расход из счета
+   */
+  deleteExpense(invoiceId, expenseId) {
+    const invoice = this.getInvoiceById(invoiceId);
+    if (invoice && invoice.expenses) {
+      const index = invoice.expenses.findIndex(exp => exp.id === expenseId);
+      if (index !== -1) {
+        const deleted = invoice.expenses.splice(index, 1)[0];
+        this.saveData();
+        return deleted;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Получить все расходы по счету
+   */
+  getExpenses(invoiceId) {
+    const invoice = this.getInvoiceById(invoiceId);
+    if (invoice) {
+      return invoice.expenses || [];
+    }
+    return [];
+  }
+
+  /**
+   * Получить общую сумму расходов по счету
+   */
+  getTotalExpenses(invoiceId) {
+    const expenses = this.getExpenses(invoiceId);
+    return expenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
   }
 }
 

@@ -298,7 +298,7 @@
         <div id="content" style="display: none;">
             <div class="stats-main">
                 <div class="stat-card revenue">
-                    <h3>💰 Доход</h3>
+                    <h3>💰 Доход от склада</h3>
                     <div class="value" id="statRevenue">0₽</div>
                     <div class="description">Выручка от продаж</div>
                 </div>
@@ -316,6 +316,40 @@
                     <h3>📈 Маржа</h3>
                     <div class="value" id="statMargin">0%</div>
                     <div class="description">Рентабельность</div>
+                </div>
+            </div>
+
+            <div class="content-card">
+                <h2>💵 Приход по оплаченным счетам</h2>
+                <div style="margin-bottom: 15px; padding: 15px; background: #e8f5e9; border-radius: 8px; border-left: 4px solid #4CAF50;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-weight: 600; color: #333;">Общий приход:</span>
+                        <span id="totalIncome" style="font-size: 1.5em; font-weight: bold; color: #4CAF50;">0₽</span>
+                    </div>
+                    <div style="margin-top: 5px; color: #666; font-size: 0.9em;">
+                        Количество оплаченных счетов: <span id="paidCount">0</span>
+                    </div>
+                </div>
+                <div id="paidInvoicesContent">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>№ Счета</th>
+                                <th>Клиент</th>
+                                <th>Дата оплаты</th>
+                                <th>Приход</th>
+                                <th>Расходы</th>
+                                <th>Остаток</th>
+                                <th>Способ оплаты</th>
+                            </tr>
+                        </thead>
+                        <tbody id="paidInvoicesBody">
+                        </tbody>
+                    </table>
+                </div>
+                <div id="emptyStatePaid" class="empty-state" style="display: none;">
+                    <h3>📋 Нет оплаченных счетов</h3>
+                    <p>Оплаченные счета будут отображаться здесь</p>
                 </div>
             </div>
 
@@ -394,8 +428,13 @@
                 if (startDate) params.append('startDate', startDate);
                 if (endDate) params.append('endDate', endDate);
 
+                // Загружаем данные по складу
                 const response = await fetch(`/api/warehouse/profitability?${params}`);
                 const data = await response.json();
+
+                // Загружаем оплаченные счета
+                const paidResponse = await fetch(`/api/invoices/paid/list?${params}`);
+                const paidData = await paidResponse.json();
 
                 // Обновляем главные показатели
                 document.getElementById('statRevenue').textContent = formatMoney(data.revenue);
@@ -408,6 +447,19 @@
                 document.getElementById('summaryCOGS').textContent = formatMoney(data.cogs);
                 document.getElementById('summaryProfit').textContent = formatMoney(data.profit);
                 document.getElementById('summaryMarginPercent').textContent = data.margin.toFixed(1) + '%';
+
+                // Отображаем оплаченные счета
+                document.getElementById('totalIncome').textContent = formatMoney(paidData.totalIncome);
+                document.getElementById('paidCount').textContent = paidData.count;
+
+                if (paidData.invoices.length === 0) {
+                    document.getElementById('paidInvoicesContent').style.display = 'none';
+                    document.getElementById('emptyStatePaid').style.display = 'block';
+                } else {
+                    document.getElementById('paidInvoicesContent').style.display = 'block';
+                    document.getElementById('emptyStatePaid').style.display = 'none';
+                    renderPaidInvoices(paidData.invoices);
+                }
 
                 // Отображаем анализ по товарам
                 if (data.productAnalysis.length === 0) {
@@ -454,6 +506,61 @@
             });
         }
 
+        function renderPaidInvoices(invoices) {
+            const tbody = document.getElementById('paidInvoicesBody');
+            tbody.innerHTML = '';
+
+            invoices.forEach(invoice => {
+                const tr = document.createElement('tr');
+                tr.style.cursor = 'pointer';
+                tr.onclick = () => openExpensesModal(invoice);
+
+                // Используем дату оплаты (когда деньги пришли в кассу), а не дату создания счета
+                const date = new Date(invoice.paidAt);
+                const dateStr = date.toLocaleDateString('ru-RU');
+
+                // Вычисляем расходы и остаток
+                const expenses = invoice.expenses || [];
+                const totalExpenses = expenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
+                const balance = invoice.amount - totalExpenses;
+
+                // Определяем способ оплаты (payment это объект с реквизитами)
+                let paymentMethod = 'Не указано';
+                if (invoice.payment) {
+                    if (typeof invoice.payment === 'object') {
+                        // Если есть объект с реквизитами, показываем основной способ
+                        if (invoice.payment.sbpPhone) {
+                            paymentMethod = `СБП (${invoice.payment.sbpPhone})`;
+                        } else if (invoice.payment.cardNumber) {
+                            paymentMethod = `Карта (${invoice.payment.cardNumber})`;
+                        } else {
+                            paymentMethod = 'Карта/СБП';
+                        }
+                    } else {
+                        // Если это строка (старый формат)
+                        paymentMethod = invoice.payment === 'cash' ? 'Наличные' :
+                                      invoice.payment === 'card' ? 'Карта' :
+                                      invoice.payment === 'transfer' ? 'Перевод' :
+                                      invoice.payment;
+                    }
+                }
+
+                // Цвет остатка: зеленый если положительный, красный если отрицательный
+                const balanceColor = balance >= 0 ? '#4CAF50' : '#f44336';
+
+                tr.innerHTML = `
+                    <td><strong>#${invoice.invoiceNumber}</strong></td>
+                    <td>${invoice.client || 'Не указан'}</td>
+                    <td>${dateStr}</td>
+                    <td><strong style="color: #4CAF50;">${formatMoney(invoice.amount)}</strong></td>
+                    <td><strong style="color: #ff9800;">${formatMoney(totalExpenses)}</strong></td>
+                    <td><strong style="color: ${balanceColor};">${formatMoney(balance)}</strong></td>
+                    <td>${paymentMethod}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
         function formatMoney(amount) {
             return amount.toLocaleString('ru-RU', {
                 minimumFractionDigits: 2,
@@ -463,6 +570,387 @@
 
         // Загружаем при старте
         loadAnalytics();
+
+        // ============= УПРАВЛЕНИЕ РАСХОДАМИ =============
+
+        let currentInvoice = null;
+
+        function openExpensesModal(invoice) {
+            currentInvoice = invoice;
+            document.getElementById('expensesModal').style.display = 'flex';
+            document.getElementById('modalInvoiceNumber').textContent = '#' + invoice.invoiceNumber;
+            document.getElementById('modalClient').textContent = invoice.client || 'Не указан';
+            document.getElementById('modalIncome').textContent = formatMoney(invoice.amount);
+
+            loadExpenses(invoice.id);
+        }
+
+        function closeExpensesModal() {
+            document.getElementById('expensesModal').style.display = 'none';
+            currentInvoice = null;
+            loadAnalytics(); // Refresh analytics data
+        }
+
+        async function loadExpenses(invoiceId) {
+            try {
+                const response = await fetch(`/api/invoices/${invoiceId}/expenses`);
+                const data = await response.json();
+
+                const tbody = document.getElementById('expensesTableBody');
+                tbody.innerHTML = '';
+
+                if (data.expenses && data.expenses.length > 0) {
+                    data.expenses.forEach(expense => {
+                        const tr = document.createElement('tr');
+                        const date = new Date(expense.date);
+                        const dateStr = date.toLocaleDateString('ru-RU');
+
+                        tr.innerHTML = `
+                            <td>${dateStr}</td>
+                            <td>${expense.description || '-'}</td>
+                            <td>${expense.category || 'Прочее'}</td>
+                            <td><strong>${formatMoney(expense.amount)}</strong></td>
+                            <td>
+                                <button onclick="deleteExpense('${invoiceId}', '${expense.id}')"
+                                        style="background: #f44336; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">
+                                    Удалить
+                                </button>
+                            </td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #666;">Расходов пока нет</td></tr>';
+                }
+
+                // Update totals
+                const totalExpenses = data.totalExpenses || 0;
+                const balance = currentInvoice.amount - totalExpenses;
+
+                document.getElementById('modalExpenses').textContent = formatMoney(totalExpenses);
+                document.getElementById('modalBalance').textContent = formatMoney(balance);
+                document.getElementById('modalBalance').style.color = balance >= 0 ? '#4CAF50' : '#f44336';
+
+            } catch (error) {
+                console.error('Ошибка загрузки расходов:', error);
+                alert('Ошибка загрузки расходов');
+            }
+        }
+
+        async function addExpense() {
+            const date = document.getElementById('expenseDate').value;
+            const amount = document.getElementById('expenseAmount').value;
+            const description = document.getElementById('expenseDescription').value;
+            const category = document.getElementById('expenseCategory').value;
+
+            if (!amount || parseFloat(amount) <= 0) {
+                alert('Укажите сумму расхода');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/invoices/${currentInvoice.id}/expenses`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        date: date || new Date().toISOString(),
+                        amount: parseFloat(amount),
+                        description,
+                        category
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Clear form
+                    document.getElementById('expenseDate').value = '';
+                    document.getElementById('expenseAmount').value = '';
+                    document.getElementById('expenseDescription').value = '';
+                    document.getElementById('expenseCategory').value = 'Прочее';
+
+                    // Reload expenses
+                    loadExpenses(currentInvoice.id);
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Не удалось добавить расход'));
+                }
+            } catch (error) {
+                console.error('Ошибка добавления расхода:', error);
+                alert('Ошибка добавления расхода');
+            }
+        }
+
+        async function deleteExpense(invoiceId, expenseId) {
+            if (!confirm('Удалить этот расход?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/invoices/${invoiceId}/expenses/${expenseId}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    loadExpenses(invoiceId);
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Не удалось удалить расход'));
+                }
+            } catch (error) {
+                console.error('Ошибка удаления расхода:', error);
+                alert('Ошибка удаления расхода');
+            }
+        }
+
+        // ============= УПРАВЛЕНИЕ КАТЕГОРИЯМИ =============
+
+        let allCategories = [];
+
+        async function loadCategories() {
+            try {
+                const response = await fetch('/api/expense-categories');
+                allCategories = await response.json();
+
+                // Update category select in expense form
+                const select = document.getElementById('expenseCategory');
+                select.innerHTML = '';
+
+                allCategories.forEach(cat => {
+                    const option = document.createElement('option');
+                    option.value = cat.name;
+                    option.textContent = cat.name;
+                    if (cat.description) {
+                        option.title = cat.description;
+                    }
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Ошибка загрузки категорий:', error);
+            }
+        }
+
+        function openCategoryManager() {
+            document.getElementById('categoryManagerModal').style.display = 'flex';
+            loadCategoriesList();
+        }
+
+        function closeCategoryManager() {
+            document.getElementById('categoryManagerModal').style.display = 'none';
+            loadCategories(); // Reload categories in expense form
+        }
+
+        async function loadCategoriesList() {
+            try {
+                const response = await fetch('/api/expense-categories');
+                const categories = await response.json();
+
+                const list = document.getElementById('categoriesList');
+                list.innerHTML = '';
+
+                if (categories.length === 0) {
+                    list.innerHTML = '<p style="text-align: center; color: #666;">Категорий пока нет</p>';
+                    return;
+                }
+
+                categories.forEach(cat => {
+                    const div = document.createElement('div');
+                    div.style.cssText = 'background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: start;';
+
+                    div.innerHTML = `
+                        <div style="flex: 1;">
+                            <div style="font-weight: bold; font-size: 16px; margin-bottom: 5px;">${cat.name}</div>
+                            <div style="color: #666; font-size: 14px;">${cat.description || 'Без описания'}</div>
+                        </div>
+                        <button onclick="deleteCategory('${cat.id}')" style="background: #f44336; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer;">
+                            Удалить
+                        </button>
+                    `;
+
+                    list.appendChild(div);
+                });
+            } catch (error) {
+                console.error('Ошибка загрузки списка категорий:', error);
+            }
+        }
+
+        async function addCategory() {
+            const name = document.getElementById('newCategoryName').value.trim();
+            const description = document.getElementById('newCategoryDescription').value.trim();
+
+            if (!name) {
+                alert('Введите название категории');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/expense-categories', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ name, description })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('newCategoryName').value = '';
+                    document.getElementById('newCategoryDescription').value = '';
+                    loadCategoriesList();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Не удалось добавить категорию'));
+                }
+            } catch (error) {
+                console.error('Ошибка добавления категории:', error);
+                alert('Ошибка добавления категории');
+            }
+        }
+
+        async function deleteCategory(id) {
+            if (!confirm('Удалить эту категорию?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/expense-categories/${id}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    loadCategoriesList();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Не удалось удалить категорию'));
+                }
+            } catch (error) {
+                console.error('Ошибка удаления категории:', error);
+                alert('Ошибка удаления категории');
+            }
+        }
+
+        // Load categories when opening expenses modal
+        const originalOpenExpensesModal = openExpensesModal;
+        openExpensesModal = function(invoice) {
+            loadCategories();
+            originalOpenExpensesModal(invoice);
+        };
     </script>
+
+    <!-- Модальное окно для управления расходами -->
+    <div id="expensesModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+        <div style="background: white; border-radius: 8px; padding: 30px; max-width: 900px; width: 90%; max-height: 90vh; overflow-y: auto;">
+            <!-- Header -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0;">Расходы по счету <span id="modalInvoiceNumber"></span> - <span id="modalClient"></span></h2>
+                <button onclick="closeExpensesModal()" style="background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
+            </div>
+
+            <!-- Summary Cards -->
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px;">
+                <div style="background: #e8f5e9; padding: 15px; border-radius: 8px; text-align: center;">
+                    <div style="color: #666; font-size: 14px; margin-bottom: 5px;">Приход</div>
+                    <div style="font-size: 24px; font-weight: bold; color: #4CAF50;" id="modalIncome">0,00 ₽</div>
+                </div>
+                <div style="background: #fff3e0; padding: 15px; border-radius: 8px; text-align: center;">
+                    <div style="color: #666; font-size: 14px; margin-bottom: 5px;">Расходы</div>
+                    <div style="font-size: 24px; font-weight: bold; color: #ff9800;" id="modalExpenses">0,00 ₽</div>
+                </div>
+                <div style="background: #f3f3f3; padding: 15px; border-radius: 8px; text-align: center;">
+                    <div style="color: #666; font-size: 14px; margin-bottom: 5px;">Остаток</div>
+                    <div style="font-size: 24px; font-weight: bold;" id="modalBalance">0,00 ₽</div>
+                </div>
+            </div>
+
+            <!-- Expenses Table -->
+            <h3>Список расходов</h3>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+                <thead>
+                    <tr style="background: #f5f5f5;">
+                        <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Дата</th>
+                        <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Описание</th>
+                        <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Категория</th>
+                        <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Сумма</th>
+                        <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="expensesTableBody">
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 20px; color: #666;">Загрузка...</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- Add Expense Form -->
+            <h3>Добавить расход</h3>
+            <div style="background: #f9f9f9; padding: 20px; border-radius: 8px;">
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">Дата</label>
+                        <input type="date" id="expenseDate" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">Сумма <span style="color: red;">*</span></label>
+                        <input type="number" id="expenseAmount" step="0.01" placeholder="0.00" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                        <label style="font-weight: 500;">Категория</label>
+                        <button onclick="openCategoryManager()" type="button" style="background: #2196F3; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                            Управление категориями
+                        </button>
+                    </div>
+                    <select id="expenseCategory" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        <option value="">Загрузка...</option>
+                    </select>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: 500;">Описание</label>
+                    <textarea id="expenseDescription" rows="3" placeholder="Опишите расход..." style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; resize: vertical;"></textarea>
+                </div>
+                <button onclick="addExpense()" style="background: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%;">
+                    Добавить расход
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для управления категориями -->
+    <div id="categoryManagerModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1001; align-items: center; justify-content: center;">
+        <div style="background: white; border-radius: 8px; padding: 30px; max-width: 700px; width: 90%; max-height: 80vh; overflow-y: auto;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0;">Управление категориями расходов</h2>
+                <button onclick="closeCategoryManager()" style="background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
+            </div>
+
+            <!-- Add Category Form -->
+            <div style="background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">Добавить новую категорию</h3>
+                <div style="margin-bottom: 10px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: 500;">Название <span style="color: red;">*</span></label>
+                    <input type="text" id="newCategoryName" placeholder="Например: Топливо" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: 500;">Описание</label>
+                    <textarea id="newCategoryDescription" rows="2" placeholder="Опишите категорию..." style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; resize: vertical;"></textarea>
+                </div>
+                <button onclick="addCategory()" style="background: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; width: 100%;">
+                    Добавить категорию
+                </button>
+            </div>
+
+            <!-- Categories List -->
+            <h3>Существующие категории</h3>
+            <div id="categoriesList" style="max-height: 300px; overflow-y: auto;">
+                <p style="text-align: center; color: #666;">Загрузка...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="/auth.js"></script>
 </body>
 </html>

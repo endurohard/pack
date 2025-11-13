@@ -6,6 +6,7 @@ import SimpleInvoiceService from './simpleInvoiceService.js';
 import InvoiceDatabase from './invoiceDatabase.js';
 import WarehouseDatabase from './warehouseDatabase.js';
 import ClientsDatabase from './clientsDatabase.js';
+import ExpenseCategories from './expenseCategories.js';
 import whatsappManager from './whatsappManager.js';
 import invoiceCounter from './invoiceCounter.js';
 import AutoSendScheduler from './autoSendScheduler.js';
@@ -42,6 +43,7 @@ const invoiceService = new SimpleInvoiceService({
 const db = new InvoiceDatabase();
 const warehouseDb = new WarehouseDatabase();
 const clientsDb = new ClientsDatabase();
+const categoriesDb = new ExpenseCategories();
 
 // Создаем планировщик автоматической рассылки
 let autoSendScheduler = null;
@@ -141,6 +143,9 @@ app.post('/api/invoice', async (req, res) => {
       yandexPath,
       publicUrl
     });
+
+    // Инкрементируем счетчик ТОЛЬКО после успешного сохранения
+    invoiceCounter.getNextInvoiceNumber();
 
     res.json({
       success: true,
@@ -296,6 +301,54 @@ app.get('/api/invoices/:id', (req, res) => {
   }
 });
 
+// Получить оплаченные счета для аналитики
+app.get('/api/invoices/paid/list', (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const allInvoices = db.getAllInvoices();
+
+    // Фильтруем только оплаченные счета
+    let paidInvoices = allInvoices.filter(invoice => invoice.paid);
+
+    // Фильтруем по датам если указаны (используем дату оплаты - paidAt, а не дату создания)
+    if (startDate || endDate) {
+      paidInvoices = paidInvoices.filter(invoice => {
+        // Используем дату оплаты для фильтрации (когда деньги пришли в кассу)
+        const paymentDate = new Date(invoice.paidAt);
+
+        // Убираем время, сравниваем только даты
+        paymentDate.setHours(0, 0, 0, 0);
+
+        const start = startDate ? new Date(startDate) : null;
+        const end = endDate ? new Date(endDate) : null;
+
+        if (start) {
+          start.setHours(0, 0, 0, 0);
+          if (paymentDate < start) return false;
+        }
+
+        if (end) {
+          end.setHours(23, 59, 59, 999);
+          if (paymentDate > end) return false;
+        }
+
+        return true;
+      });
+    }
+
+    // Вычисляем общую сумму прихода
+    const totalIncome = paidInvoices.reduce((sum, invoice) => sum + invoice.amount, 0);
+
+    res.json({
+      invoices: paidInvoices,
+      totalIncome,
+      count: paidInvoices.length
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Обновить счет
 app.put('/api/invoices/:id', async (req, res) => {
   try {
@@ -399,10 +452,10 @@ app.put('/api/invoices/:id/payment', async (req, res) => {
       return res.status(404).json({ error: 'Счет не найден' });
     }
 
-    // Если счет отмечен как оплаченный - автоматически создаем новый на следующий месяц
-    if (paid && wasUnpaid) {  // Изменение статуса с неоплачен на оплачен
+    // Если счет отмечен как оплаченный И включен абонемент И авторассылка - автоматически создаем новый на следующий месяц
+    if (paid && wasUnpaid && invoice.isRecurring && invoice.autoSendEnabled) {  // Изменение статуса с неоплачен на оплачен + абонемент + авторассылка включены
       try {
-        console.log(`[AutoDuplicate] Счет №${invoice.invoiceNumber} оплачен, создаем новый счет на следующий месяц...`);
+        console.log(`[AutoDuplicate] Счет №${invoice.invoiceNumber} оплачен (абонемент), создаем новый счет на следующий месяц...`);
 
         // Получаем новый номер счета
         const newInvoiceNumber = invoiceCounter.getNextInvoiceNumber();
@@ -439,9 +492,16 @@ app.put('/api/invoices/:id/payment', async (req, res) => {
         // Генерируем PDF
         await invoiceService.createInvoice(invoiceData, filename);
 
+        // Берем дату создания оригинального счета
+        const originalDate = new Date(invoice.createdAt);
+
         // Вычисляем дату следующей отправки (следующий месяц, то же число)
-        const nextSendDate = new Date();
+        const nextSendDate = new Date(originalDate);
         nextSendDate.setMonth(nextSendDate.getMonth() + 1);
+
+        // Вычисляем дату создания для нового счета (следующий месяц, то же число что у оригинала)
+        const nextMonthDate = new Date(originalDate);
+        nextMonthDate.setMonth(nextMonthDate.getMonth() + 1);
 
         // Сохраняем в базу данных с включенной авторассылкой
         const newInvoice = db.addInvoice({
@@ -457,7 +517,8 @@ app.put('/api/invoices/:id/payment', async (req, res) => {
           yandexPath: null,
           publicUrl: null,
           autoSendEnabled: true,  // Включаем авторассылку
-          nextSendDate: nextSendDate.toISOString()  // Устанавливаем дату на следующий месяц
+          nextSendDate: nextSendDate.toISOString(),  // Устанавливаем дату на следующий месяц
+          createdAt: nextMonthDate.toISOString()  // Устанавливаем дату создания на следующий месяц
         });
 
         // ВАЖНО: Отключаем авторассылку у оплаченного счета, чтобы не было дублирования
@@ -506,6 +567,119 @@ app.delete('/api/invoices/:id', (req, res) => {
     }
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// API для работы с расходами
+
+// Добавить расход к счету
+app.post('/api/invoices/:id/expenses', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date, amount, description, category } = req.body;
+
+    if (!amount) {
+      return res.status(400).json({ error: 'Сумма расхода обязательна' });
+    }
+
+    const expense = db.addExpense(id, {
+      date,
+      amount: parseFloat(amount),
+      description,
+      category
+    });
+
+    if (expense) {
+      res.json({ success: true, expense });
+    } else {
+      res.status(404).json({ error: 'Счет не найден' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Получить все расходы по счету
+app.get('/api/invoices/:id/expenses', (req, res) => {
+  try {
+    const { id } = req.params;
+    const expenses = db.getExpenses(id);
+    const totalExpenses = db.getTotalExpenses(id);
+
+    res.json({
+      expenses,
+      totalExpenses
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Удалить расход
+app.delete('/api/invoices/:invoiceId/expenses/:expenseId', (req, res) => {
+  try {
+    const { invoiceId, expenseId } = req.params;
+    const expense = db.deleteExpense(invoiceId, expenseId);
+
+    if (expense) {
+      res.json({ success: true, message: 'Расход удален' });
+    } else {
+      res.status(404).json({ error: 'Расход не найден' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============= API ENDPOINTS ДЛЯ КАТЕГОРИЙ РАСХОДОВ =============
+
+// Получить все категории
+app.get('/api/expense-categories', (req, res) => {
+  try {
+    const categories = categoriesDb.getAllCategories();
+    res.json(categories);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Добавить новую категорию
+app.post('/api/expense-categories', (req, res) => {
+  try {
+    const { name, description } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Название категории обязательно' });
+    }
+
+    const category = categoriesDb.addCategory({ name, description });
+    res.json({ success: true, category });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Обновить категорию
+app.put('/api/expense-categories/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description } = req.body;
+
+    const category = categoriesDb.updateCategory(id, { name, description });
+    res.json({ success: true, category });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Удалить категорию
+app.delete('/api/expense-categories/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const category = categoriesDb.deleteCategory(id);
+    res.json({ success: true, message: 'Категория удалена', category });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 });
 
