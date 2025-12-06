@@ -712,11 +712,16 @@
             let subtotal = 0;
             const itemRows = document.querySelectorAll('.item-row');
 
+            console.log('Расчет суммы, найдено позиций:', itemRows.length);
+
             itemRows.forEach(row => {
                 const quantity = parseFloat(row.querySelector('.item-quantity')?.value) || 0;
                 const price = parseFloat(row.querySelector('.item-price')?.value) || 0;
+                console.log('Позиция: кол-во =', quantity, 'цена =', price, 'сумма =', quantity * price);
                 subtotal += quantity * price;
             });
+
+            console.log('Промежуточная сумма:', subtotal);
 
             // Получение данных о скидке
             const discountType = document.getElementById('discountType').value;
@@ -730,10 +735,19 @@
             }
 
             const total = Math.max(0, subtotal - discountAmount);
+            console.log('Скидка:', discountAmount, 'Итого:', total);
 
             // Обновление отображения
-            document.getElementById('subtotal').textContent = subtotal.toFixed(2) + ' ₽';
-            document.getElementById('totalAmount').textContent = total.toFixed(2) + ' ₽';
+            const subtotalElement = document.getElementById('subtotal');
+            const totalElement = document.getElementById('totalAmount');
+
+            if (subtotalElement && totalElement) {
+                subtotalElement.textContent = subtotal.toFixed(2) + ' ₽';
+                totalElement.textContent = total.toFixed(2) + ' ₽';
+                console.log('Элементы обновлены');
+            } else {
+                console.error('Элементы не найдены!', {subtotalElement, totalElement});
+            }
 
             // Показ/скрытие строки со скидкой
             const discountDisplay = document.getElementById('discountDisplay');
@@ -1273,6 +1287,13 @@
                 console.error('Ошибка загрузки номера счета:', error);
             }
         }
+
+        // Добавляем делегированный обработчик событий для всех полей количества и цены
+        document.getElementById('itemsContainer').addEventListener('input', function(e) {
+            if (e.target.classList.contains('item-quantity') || e.target.classList.contains('item-price')) {
+                calculateTotal();
+            }
+        });
 
         // Загружаем данные при старте
         loadWarehouseProducts();
