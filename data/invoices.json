@@ -538,60 +538,6 @@
     "lastSentAt": null
   },
   {
-    "id": "1763153338294",
-    "invoiceNumber": 63,
-    "filename": "Счет_63_Jasmin_2025-12-06.pdf",
-    "amount": 13130,
-    "items": [
-      {
-        "name": "Обслуживание АТС",
-        "unit": "мес",
-        "quantity": 1,
-        "price": 5700,
-        "amount": 5700
-      },
-      {
-        "name": "Многоканальность",
-        "unit": "мес",
-        "quantity": 1,
-        "price": 3150,
-        "amount": 3150
-      },
-      {
-        "name": "Пакет минут 1000",
-        "unit": "мес",
-        "quantity": 1,
-        "price": 1300,
-        "amount": 1300
-      },
-      {
-        "name": "Гарнитура Logitech",
-        "unit": "шт",
-        "quantity": 1,
-        "price": 2980,
-        "amount": 2980
-      }
-    ],
-    "client": "\"Jasmin\"",
-    "clientPhone": "+79604180222",
-    "isRecurring": true,
-    "payment": {
-      "cardNumber": "5280-4137-5406-3845",
-      "sbpPhone": "9633707007",
-      "sbpBank": "ТИНЬКОФФ"
-    },
-    "createdAt": "2024-12-13T14:04:16.886Z",
-    "paid": false,
-    "paidAt": null,
-    "yandexPath": null,
-    "publicUrl": null,
-    "nextSendDate": "2026-01-14T00:00:00.000Z",
-    "autoSendEnabled": true,
-    "lastSentAt": null,
-    "expenses": [],
-    "updatedAt": "2025-12-06T17:00:22.171Z"
-  },
-  {
     "id": "1763366130610",
     "invoiceNumber": "066",
     "filename": "Счет_066_Salat_2025-11-17.pdf",
@@ -765,8 +711,8 @@
       "sbpBank": "ТИНЬКОФФ"
     },
     "createdAt": "2025-11-13T14:39:50.457Z",
-    "paid": false,
-    "paidAt": null,
+    "paid": true,
+    "paidAt": "2025-12-06T17:05:26.504Z",
     "yandexPath": null,
     "publicUrl": null
   },
@@ -1316,5 +1262,59 @@
     "whatsAppSentCount": 1,
     "reminderEnabled": true,
     "updatedAt": "2025-11-17T07:45:11.712Z"
+  },
+  {
+    "id": "1763153338294",
+    "invoiceNumber": 63,
+    "filename": "Счет_63_Jasmin_2025-12-06.pdf",
+    "amount": 13130,
+    "items": [
+      {
+        "name": "Обслуживание АТС",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 5700,
+        "amount": 5700
+      },
+      {
+        "name": "Многоканальность",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 3150,
+        "amount": 3150
+      },
+      {
+        "name": "Пакет минут 1000",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 1300,
+        "amount": 1300
+      },
+      {
+        "name": "Гарнитура Logitech",
+        "unit": "шт",
+        "quantity": 1,
+        "price": 2980,
+        "amount": 2980
+      }
+    ],
+    "client": "\"Jasmin\"",
+    "clientPhone": "+79604180222",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2025-12-13T14:04:16.886Z",
+    "paid": false,
+    "paidAt": null,
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2026-01-14T00:00:00.000Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null,
+    "expenses": [],
+    "updatedAt": "2025-12-06T17:00:22.171Z"
   }
 ]
