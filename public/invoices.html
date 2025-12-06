@@ -1095,10 +1095,10 @@
                         const date = new Date(invoice.nextSendDate);
                         document.getElementById('nextSendDate').value = date.toISOString().split('T')[0];
                     } else {
-                        // По умолчанию - следующий месяц, первое число
+                        // По умолчанию - следующий месяц, 14-е число
                         const nextMonth = new Date();
                         nextMonth.setMonth(nextMonth.getMonth() + 1);
-                        nextMonth.setDate(1);
+                        nextMonth.setDate(14);
                         document.getElementById('nextSendDate').value = nextMonth.toISOString().split('T')[0];
                     }
                 }

@@ -40,7 +40,7 @@
     "paidAt": "2025-12-06T15:35:00.000Z",
     "yandexPath": null,
     "publicUrl": null,
-    "nextSendDate": "2026-01-01T00:00:00.000Z",
+    "nextSendDate": "2026-01-14T00:00:00.000Z",
     "autoSendEnabled": true,
     "lastSentAt": null,
     "expenses": [],
@@ -78,7 +78,7 @@
     "paidAt": null,
     "yandexPath": null,
     "publicUrl": null,
-    "nextSendDate": "2025-12-04T00:00:00.000Z",
+    "nextSendDate": "2026-01-14T00:00:00.000Z",
     "autoSendEnabled": true,
     "lastSentAt": null,
     "expenses": []
@@ -125,7 +125,7 @@
     "paidAt": null,
     "yandexPath": null,
     "publicUrl": null,
-    "nextSendDate": "2025-12-13T14:36:23.693Z",
+    "nextSendDate": "2026-01-14T00:00:00.000Z",
     "autoSendEnabled": true,
     "lastSentAt": null,
     "lastWhatsAppSent": null,
@@ -176,7 +176,7 @@
     "paidAt": null,
     "yandexPath": null,
     "publicUrl": null,
-    "nextSendDate": "2025-12-13T14:34:16.803Z",
+    "nextSendDate": "2026-01-14T00:00:00.000Z",
     "autoSendEnabled": true,
     "lastSentAt": null,
     "expenses": []
@@ -209,7 +209,7 @@
     "paidAt": null,
     "yandexPath": null,
     "publicUrl": null,
-    "nextSendDate": "2025-12-13T14:32:03.648Z",
+    "nextSendDate": "2026-01-14T00:00:00.000Z",
     "autoSendEnabled": true,
     "lastSentAt": null,
     "lastWhatsAppSent": null,
@@ -260,7 +260,7 @@
     "paidAt": null,
     "yandexPath": null,
     "publicUrl": null,
-    "nextSendDate": "2025-12-13T14:31:03.838Z",
+    "nextSendDate": "2026-01-14T00:00:00.000Z",
     "autoSendEnabled": true,
     "lastSentAt": null,
     "expenses": []
@@ -307,7 +307,7 @@
     "paidAt": null,
     "yandexPath": null,
     "publicUrl": null,
-    "nextSendDate": "2025-12-13T14:22:44.387Z",
+    "nextSendDate": "2026-01-14T00:00:00.000Z",
     "autoSendEnabled": true,
     "lastSentAt": null,
     "expenses": []
@@ -354,7 +354,7 @@
     "paidAt": null,
     "yandexPath": null,
     "publicUrl": null,
-    "nextSendDate": "2025-12-13T14:17:52.441Z",
+    "nextSendDate": "2026-01-14T00:00:00.000Z",
     "autoSendEnabled": true,
     "lastSentAt": null,
     "lastWhatsAppSent": null,
@@ -405,7 +405,7 @@
     "paidAt": null,
     "yandexPath": null,
     "publicUrl": null,
-    "nextSendDate": "2025-12-13T14:16:09.869Z",
+    "nextSendDate": "2026-01-14T00:00:00.000Z",
     "autoSendEnabled": true,
     "lastSentAt": null,
     "expenses": []
@@ -445,15 +445,15 @@
     "paidAt": null,
     "yandexPath": null,
     "publicUrl": null,
-    "nextSendDate": "2025-12-13T14:13:36.550Z",
+    "nextSendDate": "2026-01-14T00:00:00.000Z",
     "autoSendEnabled": true,
     "lastSentAt": null
   },
   {
     "id": "1763153338294",
-    "invoiceNumber": "063",
-    "filename": "Счет_063_Jasmin_2025-11-14.pdf",
-    "amount": 10150,
+    "invoiceNumber": 63,
+    "filename": "Счет_63_Jasmin_2025-12-06.pdf",
+    "amount": 13130,
     "items": [
       {
         "name": "Обслуживание АТС",
@@ -475,9 +475,15 @@
         "quantity": 1,
         "price": 1300,
         "amount": 1300
+      },
+      {
+        "name": "Гарнитура Logitech",
+        "unit": "шт",
+        "quantity": 1,
+        "price": 2980,
+        "amount": 2980
       }
     ],
-    "discount": null,
     "client": "\"Jasmin\"",
     "clientPhone": "+79604180222",
     "isRecurring": true,
@@ -491,10 +497,11 @@
     "paidAt": null,
     "yandexPath": null,
     "publicUrl": null,
-    "nextSendDate": "2025-12-13T14:04:16.886Z",
+    "nextSendDate": "2026-01-14T00:00:00.000Z",
     "autoSendEnabled": true,
     "lastSentAt": null,
-    "expenses": []
+    "expenses": [],
+    "updatedAt": "2025-12-06T16:30:59.363Z"
   },
   {
     "id": "1763366130610",
@@ -545,7 +552,7 @@
     "paidAt": null,
     "yandexPath": null,
     "publicUrl": null,
-    "nextSendDate": "2025-12-13T13:13:52.562Z",
+    "nextSendDate": "2026-01-14T00:00:00.000Z",
     "autoSendEnabled": true,
     "lastSentAt": null,
     "lastWhatsAppSent": null,
@@ -582,7 +589,7 @@
     "paidAt": "2025-12-06T15:30:00.000Z",
     "yandexPath": null,
     "publicUrl": null,
-    "nextSendDate": "2026-01-01T00:00:00.000Z",
+    "nextSendDate": "2026-01-14T00:00:00.000Z",
     "autoSendEnabled": true,
     "lastSentAt": null,
     "lastWhatsAppSent": "2025-12-03T09:30:09.977Z",

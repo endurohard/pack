@@ -580,16 +580,15 @@ app.put('/api/invoices/:id/payment', async (req, res) => {
         // Генерируем PDF
         await invoiceService.createInvoice(invoiceData, filename);
 
-        // Берем дату создания оригинального счета
-        const originalDate = new Date(invoice.createdAt);
+        // Берем дату следующей отправки оригинального счета (если есть) или дату создания
+        const baseDate = invoice.nextSendDate ? new Date(invoice.nextSendDate) : new Date(invoice.createdAt);
 
         // Вычисляем дату следующей отправки (следующий месяц, то же число)
-        const nextSendDate = new Date(originalDate);
+        const nextSendDate = new Date(baseDate);
         nextSendDate.setMonth(nextSendDate.getMonth() + 1);
 
-        // Вычисляем дату создания для нового счета (следующий месяц, то же число что у оригинала)
-        const nextMonthDate = new Date(originalDate);
-        nextMonthDate.setMonth(nextMonthDate.getMonth() + 1);
+        // Дата создания нового счета - текущая дата
+        const nextMonthDate = new Date();
 
         // Сохраняем в базу данных с включенной авторассылкой
         const newInvoice = db.addInvoice({
