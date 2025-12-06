@@ -1,5 +1,93 @@
 [
   {
+    "id": "1765039906238",
+    "invoiceNumber": "076",
+    "filename": "Счет_076_PahPah-Group_2025-12-06.pdf",
+    "amount": 12200,
+    "items": [
+      {
+        "name": "Обслуживание АТС",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 5700,
+        "amount": 5700
+      },
+      {
+        "name": "Многоканальность",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 1500,
+        "amount": 1500
+      },
+      {
+        "name": "Пакет минут 6000",
+        "unit": "шт",
+        "quantity": 1,
+        "price": 5000,
+        "amount": 5000
+      }
+    ],
+    "discount": null,
+    "client": "PahPah-Group",
+    "clientPhone": "+79887775500",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2026-01-14T15:56:00.274Z",
+    "paid": false,
+    "paidAt": null,
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2026-01-01T00:00:00.000Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null,
+    "lastWhatsAppSent": null,
+    "whatsAppSentCount": 0,
+    "reminderEnabled": false,
+    "lastReminderSentAt": null,
+    "expenses": []
+  },
+  {
+    "id": "1765040196953",
+    "invoiceNumber": "077",
+    "filename": "Счет_077_Лукманов_Магомед_2025-12-06.pdf",
+    "amount": 5000,
+    "items": [
+      {
+        "name": "Сервис Автострахования",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 5000,
+        "amount": 5000
+      }
+    ],
+    "discount": null,
+    "client": "Лукманов Магомед",
+    "clientPhone": "+79268850000",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2026-01-03T09:29:29.124Z",
+    "paid": false,
+    "paidAt": null,
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2026-01-01T00:00:00.000Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null,
+    "lastWhatsAppSent": null,
+    "whatsAppSentCount": 0,
+    "reminderEnabled": false,
+    "lastReminderSentAt": null,
+    "expenses": []
+  },
+  {
     "id": "1763153282405",
     "invoiceNumber": 58,
     "filename": "Счет_58_PahPah-Group_2025-12-03.pdf",
@@ -37,11 +125,11 @@
     },
     "createdAt": "2025-12-14T15:56:00.274Z",
     "paid": true,
-    "paidAt": "2025-12-06T15:35:00.000Z",
+    "paidAt": "2025-12-06T16:51:45.973Z",
     "yandexPath": null,
     "publicUrl": null,
     "nextSendDate": "2026-01-14T00:00:00.000Z",
-    "autoSendEnabled": true,
+    "autoSendEnabled": false,
     "lastSentAt": null,
     "expenses": [],
     "updatedAt": "2025-12-06T15:35:00.000Z",
@@ -492,7 +580,7 @@
       "sbpPhone": "9633707007",
       "sbpBank": "ТИНЬКОФФ"
     },
-    "createdAt": "2025-12-13T14:04:16.886Z",
+    "createdAt": "2024-12-13T14:04:16.886Z",
     "paid": false,
     "paidAt": null,
     "yandexPath": null,
@@ -501,7 +589,7 @@
     "autoSendEnabled": true,
     "lastSentAt": null,
     "expenses": [],
-    "updatedAt": "2025-12-06T16:30:59.363Z"
+    "updatedAt": "2025-12-06T17:00:22.171Z"
   },
   {
     "id": "1763366130610",
@@ -586,11 +674,11 @@
     },
     "createdAt": "2025-12-03T09:29:29.124Z",
     "paid": true,
-    "paidAt": "2025-12-06T15:30:00.000Z",
+    "paidAt": "2025-12-06T16:56:36.829Z",
     "yandexPath": null,
     "publicUrl": null,
     "nextSendDate": "2026-01-14T00:00:00.000Z",
-    "autoSendEnabled": true,
+    "autoSendEnabled": false,
     "lastSentAt": null,
     "lastWhatsAppSent": "2025-12-03T09:30:09.977Z",
     "whatsAppSentCount": 1,
