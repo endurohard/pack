@@ -965,12 +965,12 @@
 
         async function togglePayment(id, paid) {
             // Получаем информацию о счете до изменения для логирования
-            const invoice = invoices.find(inv => inv.id === id);
+            const invoice = allInvoices.find(inv => inv.id === id);
             const invoiceNumber = invoice ? invoice.invoiceNumber : 'неизвестен';
             const clientName = invoice ? invoice.client : 'неизвестен';
 
             // Если отменяем оплату - запрашиваем подтверждение
-            if (!paid && invoice.paid) {
+            if (!paid && invoice && invoice.paid) {
                 const confirmMessage = `Вы уверены, что хотите отменить оплату счета №${invoiceNumber} для клиента ${clientName}?`;
                 if (!confirm(confirmMessage)) {
                     console.log(`[Frontend] Отмена оплаты отменена пользователем для счета №${invoiceNumber}`);
