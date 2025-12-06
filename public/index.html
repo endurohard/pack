@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Генератор счетов</title>
+    <link rel="stylesheet" href="/common-styles.css?v=1763477000">
+    <link rel="stylesheet" href="/css/sidebar-nav.css">
+    <link rel="stylesheet" href="/css/sidebar-adjustments.css">
+    <title>Pack System - Главная</title>
     <style>
         * {
             margin: 0;
@@ -25,84 +28,6 @@
             border-radius: 20px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
             overflow: hidden;
-        }
-
-        /* Dropdown Menu Styles */
-        .nav-menu {
-            position: relative;
-            display: inline-block;
-            margin-bottom: 20px;
-        }
-
-        .menu-button {
-            background: white;
-            color: #667eea;
-            padding: 12px 24px;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .menu-button:hover {
-            background: #f8f9fa;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
-        }
-
-        .dropdown-content {
-            display: none;
-            position: absolute;
-            background: white;
-            min-width: 220px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-            border-radius: 8px;
-            z-index: 1000;
-            margin-top: 5px;
-            overflow: hidden;
-        }
-
-        .dropdown-content.show {
-            display: block;
-            animation: slideDown 0.3s ease;
-        }
-
-        @keyframes slideDown {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .dropdown-content a {
-            color: #333;
-            padding: 14px 20px;
-            text-decoration: none;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            transition: all 0.2s;
-            border-left: 3px solid transparent;
-        }
-
-        .dropdown-content a:hover {
-            background: #f8f9fa;
-            border-left-color: #667eea;
-        }
-
-        .dropdown-content a.active {
-            background: #e3f2fd;
-            border-left-color: #667eea;
-            font-weight: 600;
         }
 
         .header {
@@ -411,7 +336,21 @@
                 flex-direction: column;
             }
         }
+
+        /* Logout button styles */
+        .logout-link {
+            border-top: 1px solid #e1e8ed !important;
+            color: #dc3545 !important;
+            font-weight: 600 !important;
+        }
+
+        .logout-link:hover {
+            background: linear-gradient(90deg, rgba(220, 53, 69, 0.1) 0%, transparent 100%) !important;
+            border-left-color: #dc3545 !important;
+            color: #dc3545 !important;
+        }
     </style>
+    <script src="/js/sidebar-loader.js"></script>
 </head>
 <body>
     <div class="container">
@@ -425,14 +364,17 @@
                 <a href="/invoices">📊 Список счетов</a>
                 <a href="/clients">👥 Клиенты</a>
                 <a href="/warehouse">📦 Склад</a>
+                <a href="/retail">🛒 Розничная продажа</a>
+                <a href="/catalog">📋 Каталог-прайс</a>
                 <a href="/analytics">📈 Аналитика</a>
                 <a href="/settings">⚙️ Настройки</a>
+                <a href="#" onclick="logout(); return false;" class="logout-link">🚪 Выход</a>
             </div>
         </div>
 
         <div class="header">
-            <h1>📄 Генератор счетов</h1>
-            <p>Создавайте профессиональные счета с автоматической загрузкой на Яндекс.Диск</p>
+            <h1>📄 Создание счета</h1>
+            <p>Быстрое создание и отправка счетов клиентам</p>
         </div>
 
         <div class="content">
@@ -484,11 +426,11 @@
                             </div>
                             <div>
                                 <label>Количество</label>
-                                <input type="number" class="item-quantity" required min="0.01" step="0.01" value="1">
+                                <input type="number" class="item-quantity" required min="0.01" step="0.01" value="1" oninput="calculateTotal()">
                             </div>
                             <div>
                                 <label>Цена</label>
-                                <input type="number" class="item-price" required min="0.01" step="0.01" value="1000">
+                                <input type="number" class="item-price" required min="0.01" step="0.01" value="1000" oninput="calculateTotal()">
                             </div>
                             <div>
                                 <label>&nbsp;</label>
@@ -506,7 +448,7 @@
                     <div class="discount-row">
                         <div>
                             <label for="discountType">Тип скидки</label>
-                            <select id="discountType">
+                            <select id="discountType" onchange="calculateTotal()">
                                 <option value="">Без скидки</option>
                                 <option value="percent">Процентная</option>
                                 <option value="fixed">Фиксированная</option>
@@ -514,12 +456,27 @@
                         </div>
                         <div>
                             <label for="discountValue">Значение</label>
-                            <input type="number" id="discountValue" min="0" step="0.01" placeholder="10">
+                            <input type="number" id="discountValue" min="0" step="0.01" placeholder="10" oninput="calculateTotal()">
                         </div>
                         <div>
                             <label for="discountDescription">Описание</label>
                             <input type="text" id="discountDescription" placeholder="Скидка постоянного клиента">
                         </div>
+                    </div>
+                </div>
+
+                <div class="total-section" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 12px; margin: 25px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <span style="font-size: 1.1em;">Сумма без скидки:</span>
+                        <span id="subtotal" style="font-size: 1.2em; font-weight: 600;">0 ₽</span>
+                    </div>
+                    <div id="discountDisplay" style="display: none; justify-content: space-between; align-items: center; margin-bottom: 10px; opacity: 0.9;">
+                        <span>Скидка:</span>
+                        <span id="discountAmount">0 ₽</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-top: 2px solid rgba(255,255,255,0.3); padding-top: 15px; margin-top: 10px;">
+                        <span style="font-size: 1.3em; font-weight: 600;">Итого к оплате:</span>
+                        <span id="totalAmount" style="font-size: 1.8em; font-weight: 700;">0 ₽</span>
                     </div>
                 </div>
 
@@ -585,6 +542,13 @@
         let warehouseProducts = [];
         let clientsList = [];
         let clientsData = {}; // Для хранения данных клиентов с телефонами
+
+        // Автозаполнение телефона клиента
+        function loadClientPhone(clientName) {
+            if (clientsData[clientName] && clientsData[clientName].phone) {
+                document.getElementById('clientPhone').value = clientsData[clientName].phone;
+            }
+        }
 
         function openModal(pdfUrl, filename, invoiceNumber) {
             currentPdfUrl = pdfUrl;
@@ -688,11 +652,11 @@
                 </div>
                 <div>
                     <label>Количество</label>
-                    <input type="number" class="item-quantity" required min="0.01" step="0.01" value="1">
+                    <input type="number" class="item-quantity" required min="0.01" step="0.01" value="1" oninput="calculateTotal()">
                 </div>
                 <div>
                     <label>Цена</label>
-                    <input type="number" class="item-price" required min="0.01" step="0.01" value="1000">
+                    <input type="number" class="item-price" required min="0.01" step="0.01" value="1000" oninput="calculateTotal()">
                 </div>
                 <div>
                     <label>&nbsp;</label>
@@ -700,6 +664,7 @@
                 </div>
             `;
             container.appendChild(itemRow);
+            calculateTotal();
         }
 
         // Добавить позицию с данными (для редактирования)
@@ -718,11 +683,11 @@
                 </div>
                 <div>
                     <label>Количество</label>
-                    <input type="number" class="item-quantity" required min="0.01" step="0.01" value="${item.quantity || 1}">
+                    <input type="number" class="item-quantity" required min="0.01" step="0.01" value="${item.quantity || 1}" oninput="calculateTotal()">
                 </div>
                 <div>
                     <label>Цена</label>
-                    <input type="number" class="item-price" required min="0.01" step="0.01" value="${item.price || 1000}">
+                    <input type="number" class="item-price" required min="0.01" step="0.01" value="${item.price || 1000}" oninput="calculateTotal()">
                 </div>
                 <div>
                     <label>&nbsp;</label>
@@ -736,8 +701,47 @@
             const container = document.getElementById('itemsContainer');
             if (container.children.length > 1) {
                 button.closest('.item-row').remove();
+                calculateTotal();
             } else {
                 alert('Должна быть хотя бы одна позиция');
+            }
+        }
+
+        function calculateTotal() {
+            // Подсчет суммы всех позиций
+            let subtotal = 0;
+            const itemRows = document.querySelectorAll('.item-row');
+
+            itemRows.forEach(row => {
+                const quantity = parseFloat(row.querySelector('.item-quantity')?.value) || 0;
+                const price = parseFloat(row.querySelector('.item-price')?.value) || 0;
+                subtotal += quantity * price;
+            });
+
+            // Получение данных о скидке
+            const discountType = document.getElementById('discountType').value;
+            const discountValue = parseFloat(document.getElementById('discountValue').value) || 0;
+
+            let discountAmount = 0;
+            if (discountType === 'percent') {
+                discountAmount = subtotal * (discountValue / 100);
+            } else if (discountType === 'fixed') {
+                discountAmount = discountValue;
+            }
+
+            const total = Math.max(0, subtotal - discountAmount);
+
+            // Обновление отображения
+            document.getElementById('subtotal').textContent = subtotal.toFixed(2) + ' ₽';
+            document.getElementById('totalAmount').textContent = total.toFixed(2) + ' ₽';
+
+            // Показ/скрытие строки со скидкой
+            const discountDisplay = document.getElementById('discountDisplay');
+            if (discountAmount > 0) {
+                discountDisplay.style.display = 'flex';
+                document.getElementById('discountAmount').textContent = '-' + discountAmount.toFixed(2) + ' ₽';
+            } else {
+                discountDisplay.style.display = 'none';
             }
         }
 
@@ -929,7 +933,8 @@
                 <head>
                     <meta charset="UTF-8">
                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>WhatsApp Web - Отправка счета</title>
+                    
+    <title>WhatsApp Web - Отправка счета</title>
                     <style>
                         body {
                             margin: 0;
@@ -1147,12 +1152,6 @@
         }
 
         // Загрузка телефона при выборе клиента
-        function loadClientPhone(clientName) {
-            if (clientsData[clientName] && clientsData[clientName].phone) {
-                document.getElementById('clientPhone').value = clientsData[clientName].phone;
-            }
-        }
-
         // Загрузка списка клиентов из базы данных
         async function loadClients() {
             try {
@@ -1244,6 +1243,9 @@
                         document.getElementById('discountDescription').value = invoice.discount.description || '';
                     }
 
+                    // Пересчитываем сумму после загрузки данных
+                    calculateTotal();
+
                     // Изменяем текст кнопки
                     document.querySelector('button[type="submit"]').textContent = '💾 Сохранить изменения';
                 } else {
@@ -1257,22 +1259,6 @@
         // Проверяем URL на наличие параметра edit
         const urlParams = new URLSearchParams(window.location.search);
         const editId = urlParams.get('edit');
-
-        // Toggle dropdown menu
-        function toggleMenu() {
-            const menu = document.getElementById('dropdownMenu');
-            menu.classList.toggle('show');
-        }
-
-        // Close menu when clicking outside
-        window.onclick = function(event) {
-            if (!event.target.matches('.menu-button')) {
-                const menu = document.getElementById('dropdownMenu');
-                if (menu.classList.contains('show')) {
-                    menu.classList.remove('show');
-                }
-            }
-        }
 
         // Загружаем текущий номер счета (без инкремента)
         async function loadCurrentInvoiceNumber() {
@@ -1292,6 +1278,7 @@
         loadWarehouseProducts();
         loadClients();
         loadCurrentInvoiceNumber();
+        calculateTotal(); // Инициализируем отображение суммы
 
         if (editId) {
             loadInvoiceForEdit(editId);
@@ -1378,6 +1365,11 @@
                         message += `🔗 Публичная ссылка: <a href="${result.publicUrl}" target="_blank">${result.publicUrl}</a>`;
                     }
 
+                    // Показываем предупреждение, если была ошибка загрузки на Яндекс.Диск
+                    if (result.warning) {
+                        message += `<br>⚠️ ${result.warning}`;
+                    }
+
                     showAlert(message, 'success');
 
                     // Если редактировали, сбрасываем режим редактирования
@@ -1406,6 +1398,7 @@
             }
         });
     </script>
+    <script src="/common-navigation.js"></script>
     <script src="/auth.js"></script>
 </body>
 </html>
