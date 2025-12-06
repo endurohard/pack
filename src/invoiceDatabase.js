@@ -61,6 +61,12 @@ class InvoiceDatabase {
       nextSendDate: invoiceData.nextSendDate || null, // Дата следующей автоматической отправки
       autoSendEnabled: invoiceData.autoSendEnabled || false, // Включена ли автоматическая рассылка
       lastSentAt: null, // Дата последней автоматической отправки
+      // Поля для отслеживания отправки через WhatsApp
+      lastWhatsAppSent: invoiceData.lastWhatsAppSent || null, // Дата последней отправки через WhatsApp (ручной или автоматической)
+      whatsAppSentCount: invoiceData.whatsAppSentCount || 0, // Количество отправок через WhatsApp
+      // Поля для напоминаний об оплате
+      reminderEnabled: invoiceData.reminderEnabled || false, // Включены ли напоминания
+      lastReminderSentAt: invoiceData.lastReminderSentAt || null, // Дата последнего напоминания
       // Расходы по счету
       expenses: invoiceData.expenses || [] // Массив расходов: [{id, date, amount, description, category}]
     };
@@ -99,11 +105,21 @@ class InvoiceDatabase {
   markAsPaid(id) {
     const invoice = this.getInvoiceById(id);
     if (invoice) {
+      const oldStatus = invoice.paid;
       invoice.paid = true;
       invoice.paidAt = new Date().toISOString();
       this.saveData();
+
+      // Логирование изменения статуса
+      console.log(`[InvoiceDB] ✅ Счет №${invoice.invoiceNumber} помечен как ОПЛАЧЕННЫЙ`);
+      console.log(`[InvoiceDB] Клиент: ${invoice.client}`);
+      console.log(`[InvoiceDB] Сумма: ${invoice.amount} ₽`);
+      console.log(`[InvoiceDB] Предыдущий статус: ${oldStatus ? 'оплачен' : 'не оплачен'}`);
+      console.log(`[InvoiceDB] Дата оплаты: ${invoice.paidAt}`);
+
       return invoice;
     }
+    console.error(`[InvoiceDB] ❌ Ошибка: счет с ID ${id} не найден при попытке отметить как оплаченный`);
     return null;
   }
 
@@ -113,11 +129,24 @@ class InvoiceDatabase {
   markAsUnpaid(id) {
     const invoice = this.getInvoiceById(id);
     if (invoice) {
+      const oldStatus = invoice.paid;
+      const oldPaidAt = invoice.paidAt;
       invoice.paid = false;
       invoice.paidAt = null;
       this.saveData();
+
+      // Логирование изменения статуса
+      console.log(`[InvoiceDB] ⚠️  Счет №${invoice.invoiceNumber} помечен как НЕОПЛАЧЕННЫЙ`);
+      console.log(`[InvoiceDB] Клиент: ${invoice.client}`);
+      console.log(`[InvoiceDB] Сумма: ${invoice.amount} ₽`);
+      console.log(`[InvoiceDB] Предыдущий статус: ${oldStatus ? 'оплачен' : 'не оплачен'}`);
+      if (oldPaidAt) {
+        console.log(`[InvoiceDB] Предыдущая дата оплаты: ${oldPaidAt}`);
+      }
+
       return invoice;
     }
+    console.error(`[InvoiceDB] ❌ Ошибка: счет с ID ${id} не найден при попытке отметить как неоплаченный`);
     return null;
   }
 

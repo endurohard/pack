@@ -6,8 +6,12 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>Список счетов</title>
+    <link rel="stylesheet" href="/common-styles.css?v=1763477000">
+    <link rel="stylesheet" href="/css/sidebar-nav.css">
+    <link rel="stylesheet" href="/css/sidebar-adjustments.css">
+    <title>Pack System - Счета</title>
     <!-- Version: 2.0 - Server-side WhatsApp Integration -->
+    <script src="/js/sidebar-loader.js"></script>
     <style>
         * {
             margin: 0;
@@ -25,84 +29,6 @@
         .container {
             max-width: 1200px;
             margin: 0 auto;
-        }
-
-        /* Dropdown Menu Styles */
-        .nav-menu {
-            position: relative;
-            display: inline-block;
-            margin-bottom: 20px;
-        }
-
-        .menu-button {
-            background: white;
-            color: #667eea;
-            padding: 12px 24px;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .menu-button:hover {
-            background: #f8f9fa;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
-        }
-
-        .dropdown-content {
-            display: none;
-            position: absolute;
-            background: white;
-            min-width: 220px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-            border-radius: 8px;
-            z-index: 1000;
-            margin-top: 5px;
-            overflow: hidden;
-        }
-
-        .dropdown-content.show {
-            display: block;
-            animation: slideDown 0.3s ease;
-        }
-
-        @keyframes slideDown {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .dropdown-content a {
-            color: #333;
-            padding: 14px 20px;
-            text-decoration: none;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            transition: all 0.2s;
-            border-left: 3px solid transparent;
-        }
-
-        .dropdown-content a:hover {
-            background: #f8f9fa;
-            border-left-color: #667eea;
-        }
-
-        .dropdown-content a.active {
-            background: #e3f2fd;
-            border-left-color: #667eea;
-            font-weight: 600;
         }
 
         .header {
@@ -182,21 +108,24 @@
             display: flex;
             align-items: center;
             gap: 10px;
+            flex-wrap: wrap;
         }
 
         .filters label {
             font-weight: 600;
             color: #666;
+            font-size: 0.9em;
         }
 
         .filters select {
-            padding: 8px 16px;
+            padding: 8px 12px;
             border: 2px solid #e1e8ed;
             border-radius: 8px;
-            font-size: 14px;
+            font-size: 0.9em;
             background: white;
             cursor: pointer;
             transition: border-color 0.3s;
+            min-width: 150px;
         }
 
         .filters select:focus {
@@ -239,6 +168,7 @@
         table {
             width: 100%;
             border-collapse: collapse;
+            table-layout: fixed;
         }
 
         thead {
@@ -246,16 +176,26 @@
         }
 
         th {
-            padding: 15px;
+            padding: 12px 8px;
             text-align: left;
             font-weight: 600;
             color: #333;
             border-bottom: 2px solid #e1e8ed;
+            font-size: 0.9em;
         }
 
+        th:nth-child(1) { width: 12%; } /* № Счета */
+        th:nth-child(2) { width: 15%; } /* Клиент */
+        th:nth-child(3) { width: 12%; } /* Дата */
+        th:nth-child(4) { width: 10%; } /* Сумма */
+        th:nth-child(5) { width: 10%; } /* Статус */
+        th:nth-child(6) { width: 41%; } /* Действия */
+
         td {
-            padding: 15px;
+            padding: 12px 8px;
             border-bottom: 1px solid #e1e8ed;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         tr:hover {
@@ -263,11 +203,12 @@
         }
 
         .status-badge {
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.85em;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.8em;
             font-weight: 600;
             display: inline-block;
+            white-space: nowrap;
         }
 
         .status-paid {
@@ -287,16 +228,20 @@
 
         .actions {
             display: flex;
-            gap: 10px;
+            flex-wrap: wrap;
+            gap: 5px;
+            min-width: 200px;
         }
 
         .action-btn {
-            padding: 6px 12px;
+            padding: 5px 10px;
             border: none;
             border-radius: 6px;
-            font-size: 0.85em;
+            font-size: 0.8em;
             cursor: pointer;
             transition: all 0.2s;
+            white-space: nowrap;
+            flex: 0 0 auto;
         }
 
         .action-view {
@@ -350,6 +295,32 @@
 
         .action-autosend.enabled:hover {
             background: #45a049;
+        }
+
+        .action-reminder {
+            background: #FF9800;
+            color: white;
+        }
+
+        .action-reminder:hover {
+            background: #F57C00;
+        }
+
+        .action-reminder.enabled {
+            background: #FFC107;
+        }
+
+        .action-reminder.enabled:hover {
+            background: #FFB300;
+        }
+
+        .action-send-reminder {
+            background: #2196F3;
+            color: white;
+        }
+
+        .action-send-reminder:hover {
+            background: #1976D2;
         }
 
         .action-duplicate {
@@ -512,15 +483,33 @@
             100% { transform: rotate(360deg); }
         }
 
-        @media (max-width: 1024px) {
-            .actions {
-                flex-wrap: wrap;
-                gap: 5px;
-            }
+        @media (max-width: 1400px) {
+            th:nth-child(1) { width: 10%; }
+            th:nth-child(2) { width: 14%; }
+            th:nth-child(3) { width: 11%; }
+            th:nth-child(4) { width: 9%; }
+            th:nth-child(5) { width: 9%; }
+            th:nth-child(6) { width: 47%; }
 
             .action-btn {
                 font-size: 0.75em;
-                padding: 5px 8px;
+                padding: 4px 8px;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .actions {
+                gap: 3px;
+            }
+
+            .action-btn {
+                font-size: 0.7em;
+                padding: 4px 6px;
+            }
+
+            th, td {
+                padding: 10px 6px;
+                font-size: 0.85em;
             }
         }
 
@@ -568,11 +557,13 @@
             .table-container {
                 overflow-x: auto;
                 -webkit-overflow-scrolling: touch;
+                padding: 15px;
             }
 
             table {
-                font-size: 0.75em;
-                min-width: 600px;
+                font-size: 0.7em;
+                min-width: 800px;
+                table-layout: auto;
             }
 
             th, td {
@@ -580,15 +571,15 @@
             }
 
             .actions {
-                flex-direction: column;
-                gap: 3px;
+                flex-direction: row;
+                gap: 2px;
+                min-width: 150px;
             }
 
             .action-btn {
-                width: 100%;
-                font-size: 0.75em;
-                padding: 6px 8px;
-                white-space: nowrap;
+                font-size: 1.2em;
+                padding: 4px 6px;
+                min-width: 28px;
             }
 
             .modal-content {
@@ -599,6 +590,15 @@
 
             .modal-header {
                 font-size: 1.2em;
+            }
+
+            .filters {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .filters select {
+                width: 100%;
             }
         }
 
@@ -612,7 +612,8 @@
             }
 
             table {
-                font-size: 0.7em;
+                font-size: 0.65em;
+                min-width: 700px;
             }
 
             th, td {
@@ -620,13 +621,14 @@
             }
 
             .status-badge {
-                font-size: 0.7em;
-                padding: 4px 8px;
+                font-size: 0.65em;
+                padding: 3px 6px;
             }
 
             .action-btn {
-                font-size: 0.7em;
-                padding: 5px 6px;
+                font-size: 1.1em;
+                padding: 3px 5px;
+                min-width: 24px;
             }
         }
     </style>
@@ -643,16 +645,21 @@
                 <a href="/invoices" class="active">📊 Список счетов</a>
                 <a href="/clients">👥 Клиенты</a>
                 <a href="/warehouse">📦 Склад</a>
+                <a href="/retail">🛒 Розничная продажа</a>
+                <a href="/catalog">📋 Каталог-прайс</a>
                 <a href="/analytics">📈 Аналитика</a>
                 <a href="/settings">⚙️ Настройки</a>
+                <a href="#" onclick="logout(); return false;" class="logout-link">🚪 Выход</a>
             </div>
         </div>
 
         <div class="header">
-            <div class="header-content">
-                <h1>📊 Список счетов</h1>
-                <a href="/" class="btn btn-primary">+ Создать новый счет</a>
-            </div>
+            <h1>📊 Управление счетами</h1>
+            <p>Просмотр, редактирование и аналитика счетов</p>
+        </div>
+
+        <div style="background: white; border-radius: 20px; padding: 20px; margin-bottom: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+            <a href="/" class="btn btn-primary" style="display: inline-block; padding: 12px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">+ Создать новый счет</a>
         </div>
 
         <div class="stats">
@@ -678,8 +685,14 @@
             <div class="table-header">
                 <h2>Все счета</h2>
                 <div class="filters">
-                    <label for="monthFilter">Фильтр по месяцу:</label>
-                    <select id="monthFilter" onchange="filterByMonth()">
+                    <label for="statusFilter">Статус:</label>
+                    <select id="statusFilter" onchange="applyFilters()">
+                        <option value="all">Все</option>
+                        <option value="paid">Оплаченные</option>
+                        <option value="unpaid">Неоплаченные</option>
+                    </select>
+                    <label for="monthFilter">Месяц:</label>
+                    <select id="monthFilter" onchange="applyFilters()">
                         <option value="all">Все месяцы</option>
                     </select>
                 </div>
@@ -742,22 +755,6 @@
     </div>
 
     <script>
-        // Toggle dropdown menu
-        function toggleMenu() {
-            const menu = document.getElementById('dropdownMenu');
-            menu.classList.toggle('show');
-        }
-
-        // Close menu when clicking outside
-        window.onclick = function(event) {
-            if (!event.target.matches('.menu-button')) {
-                const menu = document.getElementById('dropdownMenu');
-                if (menu.classList.contains('show')) {
-                    menu.classList.remove('show');
-                }
-            }
-        }
-
         // Глобальные переменные для хранения всех счетов
         let allInvoices = [];
         let filteredInvoices = [];
@@ -823,22 +820,38 @@
             const currentYearMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
             if (months.has(currentYearMonth)) {
                 monthSelect.value = currentYearMonth;
-                filterByMonth(); // Применяем фильтр
+                applyFilters(); // Применяем фильтр
             }
         }
 
-        function filterByMonth() {
+        function applyFilters() {
             const monthFilter = document.getElementById('monthFilter').value;
+            const statusFilter = document.getElementById('statusFilter').value;
 
-            if (monthFilter === 'all') {
-                filteredInvoices = [...allInvoices];
-            } else {
-                filteredInvoices = allInvoices.filter(invoice => {
+            // Фильтруем по месяцу
+            let filtered = [...allInvoices];
+
+            if (monthFilter !== 'all') {
+                filtered = filtered.filter(invoice => {
                     const date = new Date(invoice.createdAt);
                     const invoiceYearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
                     return invoiceYearMonth === monthFilter;
                 });
             }
+
+            // Фильтруем по статусу оплаты
+            if (statusFilter !== 'all') {
+                filtered = filtered.filter(invoice => {
+                    if (statusFilter === 'paid') {
+                        return invoice.paid === true;
+                    } else if (statusFilter === 'unpaid') {
+                        return invoice.paid === false;
+                    }
+                    return true;
+                });
+            }
+
+            filteredInvoices = filtered;
 
             // Обновляем статистику для отфильтрованных счетов
             updateStatistics(filteredInvoices);
@@ -881,33 +894,56 @@
                 }
 
                 const statusBadge = invoice.paid
-                    ? '<span class="status-badge status-paid">✓ Оплачен</span>'
-                    : '<span class="status-badge status-unpaid">✗ Не оплачен</span>';
+                    ? '<span class="status-badge status-paid" title="Оплачен">✓</span>'
+                    : '<span class="status-badge status-unpaid" title="Не оплачен">✗</span>';
 
-                const recurringBadge = invoice.isRecurring ? ' <span style="background: #e3f2fd; color: #1976d2; padding: 2px 6px; border-radius: 4px; font-size: 0.75em;">🔄 Абонемент</span>' : '';
-                const autoSendBadge = invoice.autoSendEnabled ? ' <span style="background: #e8f5e9; color: #2e7d32; padding: 2px 6px; border-radius: 4px; font-size: 0.75em;">📅 Авторассылка</span>' : '';
+                const recurringBadge = invoice.isRecurring ? ' <span style="background: #e3f2fd; color: #1976d2; padding: 2px 4px; border-radius: 3px; font-size: 0.7em; cursor: help;" title="Абонемент">🔄</span>' : '';
+                const autoSendBadge = invoice.autoSendEnabled ? ' <span style="background: #e8f5e9; color: #2e7d32; padding: 2px 4px; border-radius: 3px; font-size: 0.7em; cursor: help;" title="Авторассылка включена">📅</span>' : '';
+                const reminderBadge = invoice.reminderEnabled ? ' <span style="background: #fff3e0; color: #f57c00; padding: 2px 4px; border-radius: 3px; font-size: 0.7em; cursor: help;" title="Напоминания включены">🔔</span>' : '';
+
+                // Бейдж для счетов, отправленных через WhatsApp
+                const whatsappSentBadge = invoice.lastWhatsAppSent
+                    ? ` <span style="background: #e8f5e9; color: #25D366; padding: 2px 4px; border-radius: 3px; font-size: 0.7em; cursor: help;" title="Отправлен через WhatsApp: ${new Date(invoice.lastWhatsAppSent).toLocaleString('ru-RU')}">📤</span>`
+                    : '';
                 const autoSendClass = invoice.autoSendEnabled ? 'enabled' : '';
-                const autoSendText = invoice.autoSendEnabled ? '📅 Авторассылка' : '📅 Настроить';
+                const autoSendText = invoice.autoSendEnabled ? '📅' : '📅';
+                const autoSendTitle = invoice.autoSendEnabled ? 'Авторассылка включена' : 'Настроить авторассылку';
+
+                const reminderClass = invoice.reminderEnabled ? 'enabled' : '';
+                const reminderText = '🔔';
+                const reminderTitle = invoice.reminderEnabled ? 'Напоминания включены' : 'Включить напоминания';
 
                 // Показываем кнопку дублирования только для оплаченных счетов
                 const duplicateButton = invoice.paid
-                    ? '<button class="action-btn action-duplicate" onclick="duplicateInvoice(\''+invoice.id+'\')">📋 Дублировать</button>'
+                    ? '<button class="action-btn action-duplicate" onclick="duplicateInvoice(\''+invoice.id+'\')" title="Дублировать счет">📋</button>'
+                    : '';
+
+                // Показываем кнопку напоминаний только для неоплаченных счетов, которые были отправлены через WhatsApp
+                const reminderButton = !invoice.paid && invoice.lastWhatsAppSent
+                    ? `<button class="action-btn action-reminder ${reminderClass}" onclick="toggleReminder('${invoice.id}', ${!invoice.reminderEnabled})" title="${reminderTitle}">${reminderText}</button>`
+                    : '';
+
+                // Кнопка "Напомнить об оплате" - показывается для всех неоплаченных счетов с телефоном
+                const sendReminderButton = !invoice.paid && invoice.clientPhone
+                    ? `<button class="action-btn action-send-reminder" onclick="sendPaymentReminder('${invoice.id}')" title="Отправить напоминание об оплате">🔔</button>`
                     : '';
 
                 tr.innerHTML = `
-                    <td><strong>#${invoice.invoiceNumber}</strong>${recurringBadge}${autoSendBadge}</td>
-                    <td>${invoice.client || '<span style="color: #999;">Не указан</span>'}</td>
-                    <td>${formatDate(invoice.createdAt)}</td>
+                    <td style="word-break: break-word;"><strong>#${invoice.invoiceNumber}</strong>${recurringBadge}${autoSendBadge}${reminderBadge}${whatsappSentBadge}</td>
+                    <td style="word-break: break-word;">${invoice.client || '<span style="color: #999;">Не указан</span>'}</td>
+                    <td style="font-size: 0.85em;">${formatDate(invoice.createdAt)}</td>
                     <td><strong>${formatMoney(invoice.amount)}</strong></td>
                     <td class="toggle-payment" onclick="togglePayment('${invoice.id}', ${!invoice.paid})">${statusBadge}</td>
                     <td>
                         <div class="actions">
-                            <button class="action-btn action-view" onclick="viewInvoice('${invoice.filename}')">👁️ Просмотр</button>
-                            <button class="action-btn action-whatsapp" data-invoice-id="${invoice.id}" data-invoice-number="${invoice.invoiceNumber}" data-client-name="${invoice.client}" data-client-phone="${invoice.clientPhone || ''}">📱 WhatsApp</button>
+                            <button class="action-btn action-view" onclick="viewInvoice('${invoice.filename}')" title="Просмотр PDF">👁️</button>
+                            <button class="action-btn action-whatsapp" data-invoice-id="${invoice.id}" data-invoice-number="${invoice.invoiceNumber}" data-client-name="${invoice.client}" data-client-phone="${invoice.clientPhone || ''}" title="Отправить в WhatsApp">📱</button>
+                            ${sendReminderButton}
                             ${duplicateButton}
-                            <button class="action-btn action-autosend ${autoSendClass}" onclick="openAutoSendModal('${invoice.id}')">${autoSendText}</button>
-                            <button class="action-btn action-edit" onclick="editInvoice('${invoice.id}')">✏️ Редактировать</button>
-                            <button class="action-btn action-delete" onclick="deleteInvoice('${invoice.id}')">🗑️ Удалить</button>
+                            ${reminderButton}
+                            <button class="action-btn action-autosend ${autoSendClass}" onclick="openAutoSendModal('${invoice.id}')" title="${autoSendTitle}">${autoSendText}</button>
+                            <button class="action-btn action-edit" onclick="editInvoice('${invoice.id}')" title="Редактировать">✏️</button>
+                            <button class="action-btn action-delete" onclick="deleteInvoice('${invoice.id}')" title="Удалить">🗑️</button>
                         </div>
                     </td>
                 `;
@@ -928,6 +964,13 @@
         }
 
         async function togglePayment(id, paid) {
+            // Получаем информацию о счете до изменения для логирования
+            const invoice = invoices.find(inv => inv.id === id);
+            const invoiceNumber = invoice ? invoice.invoiceNumber : 'неизвестен';
+            const clientName = invoice ? invoice.client : 'неизвестен';
+
+            console.log(`[Frontend] Изменение статуса оплаты для счета №${invoiceNumber} (${clientName}): ${paid ? 'оплачен' : 'не оплачен'}`);
+
             try {
                 const response = await fetch(`/api/invoices/${id}/payment`, {
                     method: 'PUT',
@@ -937,6 +980,7 @@
 
                 if (response.ok) {
                     const result = await response.json();
+                    console.log(`[Frontend] ✅ Статус успешно обновлен для счета №${invoiceNumber}`);
 
                     // Если был создан новый счет автоматически - показываем уведомление
                     if (result.newInvoice) {
@@ -948,11 +992,13 @@
 
                     loadInvoices(); // Перезагружаем список
                 } else {
-                    alert('Ошибка обновления статуса');
+                    const errorText = await response.text();
+                    console.error(`[Frontend] ❌ Ошибка обновления статуса счета №${invoiceNumber}: ${response.status} ${errorText}`);
+                    alert(`Ошибка обновления статуса счета №${invoiceNumber}: ${response.statusText}`);
                 }
             } catch (error) {
-                console.error('Ошибка:', error);
-                alert('Ошибка обновления статуса');
+                console.error(`[Frontend] ❌ Исключение при обновлении статуса счета №${invoiceNumber}:`, error);
+                alert(`Ошибка соединения при обновлении счета №${invoiceNumber}. Проверьте соединение с сервером.`);
             }
         }
 
@@ -1009,13 +1055,16 @@
 
         function formatDate(dateString) {
             const date = new Date(dateString);
-            return date.toLocaleDateString('ru-RU', {
+            const dateStr = date.toLocaleDateString('ru-RU', {
                 day: '2-digit',
                 month: '2-digit',
-                year: 'numeric',
+                year: 'numeric'
+            });
+            const timeStr = date.toLocaleTimeString('ru-RU', {
                 hour: '2-digit',
                 minute: '2-digit'
             });
+            return `${dateStr}<br><small style="color: #999;">${timeStr}</small>`;
         }
 
         function formatMoney(amount) {
@@ -1212,7 +1261,8 @@
                 <html>
                 <head>
                     <meta charset="UTF-8">
-                    <title>WhatsApp - Отправка счета №${invoiceNumber}</title>
+                    
+    <title>WhatsApp - Отправка счета №${invoiceNumber}</title>
                     <style>
                         * {
                             margin: 0;
@@ -1421,9 +1471,86 @@
             }, 5000);
         }
 
+        // Функция для переключения напоминаний
+        async function toggleReminder(invoiceId, enabled) {
+            try {
+                const response = await fetch(`/api/invoices/${invoiceId}/reminder`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification(
+                        enabled ? '✅ Напоминания включены' : '❌ Напоминания выключены',
+                        enabled ? 'Клиенту будут отправляться ежедневные напоминания об оплате' : 'Напоминания об оплате отключены'
+                    );
+                    loadInvoices(); // Перезагружаем список
+                } else {
+                    alert('Ошибка: ' + (result.error || 'Неизвестная ошибка'));
+                }
+            } catch (error) {
+                console.error('Ошибка:', error);
+                alert('Ошибка переключения напоминаний');
+            }
+        }
+
+        // Функция для ручной отправки напоминания об оплате
+        async function sendPaymentReminder(invoiceId) {
+            try {
+                // Получаем данные счета
+                const response = await fetch(`/api/invoices/${invoiceId}`);
+                const data = await response.json();
+
+                if (!data.success || !data.invoice) {
+                    throw new Error('Не удалось получить данные счета');
+                }
+
+                const invoice = data.invoice;
+
+                // Проверяем наличие телефона
+                if (!invoice.clientPhone) {
+                    alert('❌ У клиента не указан номер телефона');
+                    return;
+                }
+
+                // Подтверждение
+                if (!confirm(`Отправить напоминание об оплате клиенту ${invoice.client}?\n\nСчет №${invoice.invoiceNumber}\nСумма: ${invoice.amount.toLocaleString('ru-RU')} ₽`)) {
+                    return;
+                }
+
+                // Отправляем запрос на ручную отправку напоминания
+                const sendResponse = await fetch('/api/payment-reminders/send-now', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ invoiceId })
+                });
+
+                const result = await sendResponse.json();
+
+                if (result.success) {
+                    showNotification(
+                        '✅ Напоминание отправлено',
+                        `Клиенту ${invoice.client} отправлено напоминание об оплате счета №${invoice.invoiceNumber}`
+                    );
+                    loadInvoices(); // Перезагружаем список
+                } else {
+                    alert('❌ Ошибка отправки: ' + (result.error || 'Неизвестная ошибка'));
+                }
+            } catch (error) {
+                console.error('Ошибка:', error);
+                alert('❌ Ошибка при отправке напоминания: ' + error.message);
+            }
+        }
+
         // Загружаем при старте
-        loadInvoices();
+        document.addEventListener('DOMContentLoaded', function() {
+            loadInvoices();
+        });
     </script>
+    <script src="/common-navigation.js"></script>
     <script src="/auth.js"></script>
 </body>
 </html>

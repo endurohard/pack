@@ -20,11 +20,46 @@ class WhatsAppManager {
   }
 
   /**
+   * Убить старые процессы Chrome связанные с WhatsApp session
+   */
+  async killOldChromeProcesses() {
+    try {
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execPromise = promisify(exec);
+
+      console.log('🔍 Проверка старых Chrome процессов...');
+
+      // Проверяем наличие процессов Chrome с нашей сессией
+      try {
+        const { stdout } = await execPromise('pgrep -f "chrome.*whatsapp-session"');
+        if (stdout.trim()) {
+          console.log('⚠️  Обнаружены старые Chrome процессы, завершаем...');
+          await execPromise('pkill -9 -f "chrome.*whatsapp-session"');
+          // Даём время на завершение
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          console.log('✅ Старые Chrome процессы завершены');
+        } else {
+          console.log('✅ Старых Chrome процессов не обнаружено');
+        }
+      } catch (error) {
+        // Если pgrep не нашел процессы, это нормально
+        console.log('✅ Старых Chrome процессов не обнаружено');
+      }
+    } catch (error) {
+      console.warn('⚠️  Не удалось проверить старые процессы:', error.message);
+    }
+  }
+
+  /**
    * Инициализация браузера и WhatsApp Web
    */
   async initialize() {
     try {
       console.log('🚀 Запуск браузера для WhatsApp Web...');
+
+      // Проверяем и убиваем старые процессы Chrome если они есть
+      await this.killOldChromeProcesses();
 
       this.browser = await puppeteer.launch({
         headless: false, // Нужен non-headless для работы с WhatsApp Web
@@ -339,10 +374,17 @@ class WhatsAppManager {
       }
 
       if (captionBox) {
-        // Вводим текст подписи
+        // Кликаем на поле подписи
         await captionBox.click();
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Используем type() для эмуляции реального набора текста
         await captionBox.type(message, { delay: 50 });
+
         console.log('📝 Текст подписи введен');
+
+        // Даем время на обработку ввода
+        await new Promise(resolve => setTimeout(resolve, 1000));
       } else {
         console.warn('⚠️  Поле для подписи не найдено, файл будет отправлен без текста');
       }
@@ -470,10 +512,20 @@ class WhatsAppManager {
       throw new Error('WhatsApp Web не инициализирован');
     }
 
-    return await this.page.screenshot({
-      type: 'png',
-      fullPage: false
-    });
+    try {
+      // Проверяем, что страница не закрыта
+      if (this.page.isClosed()) {
+        throw new Error('Страница WhatsApp закрыта');
+      }
+
+      return await this.page.screenshot({
+        type: 'png',
+        fullPage: false
+      });
+    } catch (error) {
+      console.error('Ошибка получения скриншота:', error.message);
+      throw new Error(`Не удалось получить скриншот: ${error.message}`);
+    }
   }
 
   /**
@@ -511,8 +563,17 @@ class WhatsAppManager {
    * Перезапуск (если что-то пошло не так)
    */
   async restart() {
-    await this.close();
-    await this.initialize();
+    try {
+      console.log('🔄 Перезапуск WhatsApp Manager...');
+      await this.close();
+      // Даём время на полное закрытие
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await this.initialize();
+      console.log('✅ WhatsApp Manager успешно перезапущен');
+    } catch (error) {
+      console.error('❌ Ошибка перезапуска WhatsApp Manager:', error.message);
+      throw error;
+    }
   }
 }
 

@@ -57,16 +57,20 @@ class WarehouseDatabase {
    */
   addProduct(productData) {
     const product = {
-      id: Date.now().toString(),
+      id: productData.id || Date.now().toString(),
       name: productData.name,
       type: productData.type, // 'product' или 'service'
       unit: productData.unit, // шт, кг, час, мес и т.д.
       costPrice: productData.costPrice || 0, // Себестоимость
       sellingPrice: productData.sellingPrice || 0, // Цена продажи
-      quantity: 0, // Текущий остаток
+      quantity: productData.quantity || 0, // Текущий остаток
       category: productData.category || 'Разное',
       description: productData.description || '',
-      createdAt: new Date().toISOString()
+      image: productData.image || null, // URL или путь к фото
+      article: productData.article || '', // Артикул
+      barcode: productData.barcode || '', // Штрихкод
+      supplier: productData.supplier || null, // Поставщик
+      createdAt: productData.createdAt || new Date().toISOString()
     };
 
     this.products.push(product);
@@ -281,6 +285,68 @@ class WarehouseDatabase {
       totalValue,
       lowStock
     };
+  }
+
+  /**
+   * Получить список всех поставщиков
+   */
+  getAllSuppliers() {
+    const suppliers = new Set();
+    this.products.forEach(p => {
+      if (p.supplier) {
+        suppliers.add(p.supplier);
+      }
+    });
+    return Array.from(suppliers).sort();
+  }
+
+  /**
+   * Получить товары по поставщику
+   */
+  getProductsBySupplier(supplier) {
+    return this.products
+      .filter(p => p.supplier === supplier)
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  }
+
+  /**
+   * Применить наценку к товарам поставщика
+   * @param {string} supplier - Название поставщика
+   * @param {number} markup - Процент наценки (например, 30 для 30%)
+   * @param {string} mode - 'percentage' или 'fixed' (фиксированная сумма)
+   */
+  applyMarkupToSupplier(supplier, markup, mode = 'percentage') {
+    let updated = 0;
+    this.products.forEach(product => {
+      if (product.supplier === supplier) {
+        if (mode === 'percentage') {
+          // Процентная наценка
+          product.sellingPrice = Math.round(product.costPrice * (1 + markup / 100));
+        } else if (mode === 'fixed') {
+          // Фиксированная надбавка
+          product.sellingPrice = product.costPrice + markup;
+        }
+        updated++;
+      }
+    });
+
+    this.saveProducts();
+    return updated;
+  }
+
+  /**
+   * Обновить цену конкретного товара
+   * @param {string} productId - ID товара
+   * @param {number} newPrice - Новая цена продажи
+   */
+  updateProductPrice(productId, newPrice) {
+    const product = this.getProductById(productId);
+    if (product) {
+      product.sellingPrice = newPrice;
+      this.saveProducts();
+      return product;
+    }
+    return null;
   }
 }
 

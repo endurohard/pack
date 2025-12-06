@@ -86,6 +86,14 @@ class AutoSendScheduler {
           // Обновляем дату следующей отправки (сдвигаем на месяц)
           this.db.updateNextSendDate(invoice.id);
 
+          // Обновляем информацию об отправке через WhatsApp
+          this.db.updateInvoice(invoice.id, {
+            lastWhatsAppSent: new Date().toISOString(),
+            whatsAppSentCount: (invoice.whatsAppSentCount || 0) + 1,
+            // Автоматически включаем напоминания при автоматической отправке
+            reminderEnabled: true
+          });
+
           console.log(`[AutoSend] ✅ Счет №${invoice.invoiceNumber} успешно отправлен`);
           console.log(`[AutoSend] Следующая отправка: ${new Date(invoice.nextSendDate).toLocaleString('ru-RU')}`);
 
@@ -110,6 +118,26 @@ class AutoSendScheduler {
   }
 
   /**
+   * Получить шаблон приветственного сообщения
+   */
+  getGreetingMessageTemplate() {
+    try {
+      const settingsPath = path.join(__dirname, '../data/whatsapp-settings.json');
+      if (fs.existsSync(settingsPath)) {
+        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+        if (settings.greeting) {
+          return settings.greeting;
+        }
+      }
+    } catch (error) {
+      console.error('[AutoSend] Ошибка чтения шаблона приветствия:', error.message);
+    }
+
+    // Шаблон по умолчанию
+    return 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.';
+  }
+
+  /**
    * Отправить счет через WhatsApp
    */
   async sendInvoice(invoice) {
@@ -127,8 +155,9 @@ class AutoSendScheduler {
       phone = '7' + phone;
     }
 
-    // Формируем сообщение
-    const message = `Добрый день! Направляем счет №${invoice.invoiceNumber} на оплату.\n\nКлиент: ${invoice.client}\nСумма: ${invoice.amount?.toLocaleString('ru-RU')} ₽`;
+    // Формируем сообщение из шаблона
+    let messageTemplate = this.getGreetingMessageTemplate();
+    const message = messageTemplate.replace(/{номер}/g, invoice.invoiceNumber);
 
     // Ищем PDF файл счета
     const invoicesDir = path.join(__dirname, '../invoices');

@@ -10,9 +10,11 @@ import ExpenseCategories from './expenseCategories.js';
 import whatsappManager from './whatsappManager.js';
 import invoiceCounter from './invoiceCounter.js';
 import AutoSendScheduler from './autoSendScheduler.js';
+import PaymentReminderService from './paymentReminderService.js';
 import { authMiddleware, loginHandler, verifyHandler, logoutHandler } from './authMiddleware.js';
 import authDatabase from './authDatabase.js';
 import fs from 'fs';
+import multer from 'multer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,6 +28,47 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
+
+// Создаем папку для хранения фото товаров
+const uploadsDir = path.join(__dirname, '../uploads/products');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Раздаем статические файлы из папки uploads
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// Настройка multer для загрузки фото
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadsDir);
+  },
+  filename: function (req, file, cb) {
+    // Генерируем уникальное имя файла: timestamp-randomstring.ext
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, 'product-' + uniqueSuffix + ext);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // Максимум 5MB
+  },
+  fileFilter: function (req, file, cb) {
+    // Проверяем тип файла
+    const allowedTypes = /jpeg|jpg|png|gif|webp/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Разрешены только изображения (JPEG, PNG, GIF, WebP)'));
+    }
+  }
+});
 
 // Добавляем middleware авторизации ДО всех остальных маршрутов
 app.use(authMiddleware);
@@ -68,7 +111,8 @@ app.post('/api/auth/change-credentials', (req, res) => {
 
 // Создаем сервис генерации счетов
 const invoiceService = new SimpleInvoiceService({
-  localOutputFolder: path.join(__dirname, '../output')
+  localOutputFolder: path.join(__dirname, '../output'),
+  autoUpload: false // Отключаем автозагрузку по умолчанию, будем управлять вручную
 });
 
 // Создаем базы данных
@@ -79,6 +123,9 @@ const categoriesDb = new ExpenseCategories();
 
 // Создаем планировщик автоматической рассылки
 let autoSendScheduler = null;
+
+// Создаем сервис напоминаний об оплате
+let paymentReminderService = null;
 
 // Функция для очистки имени файла
 function sanitizeFilename(name) {
@@ -136,26 +183,34 @@ app.post('/api/invoice', async (req, res) => {
 
     let yandexPath = null;
     let publicUrl = null;
+    let uploadError = null;
 
     // Если нужно загрузить на Яндекс.Диск и токен есть
     if (uploadToYandex && invoiceService.isYandexDiskConfigured()) {
       const localPath = path.join(__dirname, '../output', filename);
       const remotePath = `${process.env.YANDEX_DISK_FOLDER || '/Счета'}/${filename}`;
 
-      const result = await invoiceService.generator.generateAndUploadToYandexDisk(
-        invoiceData,
-        localPath,
-        process.env.YANDEX_DISK_TOKEN,
-        remotePath,
-        {
-          createFolder: true,
-          publish: getPublicLink,
-          deleteLocal: false
-        }
-      );
+      try {
+        const result = await invoiceService.generator.generateAndUploadToYandexDisk(
+          invoiceData,
+          localPath,
+          process.env.YANDEX_DISK_TOKEN,
+          remotePath,
+          {
+            createFolder: true,
+            publish: getPublicLink,
+            deleteLocal: false
+          }
+        );
 
-      yandexPath = result.remotePath;
-      publicUrl = result.publicUrl;
+        yandexPath = result.remotePath;
+        publicUrl = result.publicUrl;
+      } catch (yandexError) {
+        // Если загрузка на Яндекс.Диск не удалась, сохраняем локально
+        console.error('⚠️  Ошибка загрузки на Яндекс.Диск:', yandexError.message);
+        uploadError = yandexError.message;
+        await invoiceService.createInvoice(invoiceData, filename);
+      }
     } else {
       // Только локальное сохранение
       await invoiceService.createInvoice(invoiceData, filename);
@@ -185,7 +240,8 @@ app.post('/api/invoice', async (req, res) => {
       localPath: path.join(__dirname, '../output', filename),
       yandexPath,
       publicUrl,
-      invoiceId: savedInvoice.id
+      invoiceId: savedInvoice.id,
+      warning: uploadError ? `Счет сохранен локально. ${uploadError}` : null
     });
 
   } catch (error) {
@@ -801,6 +857,45 @@ app.get('/api/warehouse/products', (req, res) => {
   }
 });
 
+// Загрузить фото товара
+app.post('/api/warehouse/products/upload-image', upload.single('image'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Файл не загружен' });
+    }
+
+    // Возвращаем URL к загруженному файлу
+    const imageUrl = `/uploads/products/${req.file.filename}`;
+    res.json({
+      success: true,
+      imageUrl: imageUrl,
+      filename: req.file.filename
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Удалить фото товара
+app.delete('/api/warehouse/products/delete-image', (req, res) => {
+  try {
+    const { filename } = req.body;
+    if (!filename) {
+      return res.status(400).json({ error: 'Имя файла не указано' });
+    }
+
+    const filePath = path.join(uploadsDir, filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      res.json({ success: true, message: 'Фото удалено' });
+    } else {
+      res.status(404).json({ error: 'Файл не найден' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Добавить товар
 app.post('/api/warehouse/products', (req, res) => {
   try {
@@ -886,6 +981,69 @@ app.get('/api/warehouse/low-stock', (req, res) => {
     const threshold = parseInt(req.query.threshold) || 5;
     const products = warehouseDb.getLowStockProducts(threshold);
     res.json({ products });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Получить список всех поставщиков
+app.get('/api/warehouse/suppliers', (req, res) => {
+  try {
+    const suppliers = warehouseDb.getAllSuppliers();
+    res.json({ suppliers });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Получить товары по поставщику
+app.get('/api/warehouse/suppliers/:supplier/products', (req, res) => {
+  try {
+    const supplier = decodeURIComponent(req.params.supplier);
+    const products = warehouseDb.getProductsBySupplier(supplier);
+    res.json({ supplier, products });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Применить наценку к товарам поставщика
+app.post('/api/warehouse/suppliers/:supplier/apply-markup', (req, res) => {
+  try {
+    const supplier = decodeURIComponent(req.params.supplier);
+    const { markup, mode } = req.body;
+
+    if (markup === undefined || markup === null) {
+      return res.status(400).json({ error: 'Наценка не указана' });
+    }
+
+    const updated = warehouseDb.applyMarkupToSupplier(supplier, markup, mode || 'percentage');
+    res.json({
+      success: true,
+      updated,
+      message: `Обновлено ${updated} товаров`
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Обновить цену отдельного товара
+app.put('/api/warehouse/products/:id/price', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { sellingPrice } = req.body;
+
+    if (sellingPrice === undefined || sellingPrice === null) {
+      return res.status(400).json({ error: 'Цена не указана' });
+    }
+
+    const product = warehouseDb.updateProductPrice(id, sellingPrice);
+    if (product) {
+      res.json({ success: true, product });
+    } else {
+      res.status(404).json({ error: 'Товар не найден' });
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1048,6 +1206,22 @@ app.post('/api/whatsapp/send-file', async (req, res) => {
     console.log(`Найден PDF файл: ${pdfPath}`);
 
     const result = await whatsappManager.sendMessageWithFile(phone, message, pdfPath);
+
+    // Если отправка успешна, обновляем информацию о счете
+    if (result.success) {
+      // Находим счет по номеру
+      const invoice = db.getInvoiceByNumber(invoiceId);
+      if (invoice) {
+        db.updateInvoice(invoice.id, {
+          lastWhatsAppSent: new Date().toISOString(),
+          whatsAppSentCount: (invoice.whatsAppSentCount || 0) + 1,
+          // Автоматически включаем напоминания при первой отправке
+          reminderEnabled: invoice.reminderEnabled !== undefined ? invoice.reminderEnabled : true
+        });
+        console.log(`Счет №${invoiceId} отмечен как отправленный через WhatsApp`);
+      }
+    }
+
     res.json(result);
 
   } catch (error) {
@@ -1195,6 +1369,151 @@ app.post('/api/auto-send/check-now', async (req, res) => {
   }
 });
 
+// API endpoint для включения/выключения напоминаний об оплате
+app.post('/api/invoices/:id/reminder', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { enabled } = req.body;
+
+    const invoice = db.updateInvoice(id, {
+      reminderEnabled: enabled
+    });
+
+    if (invoice) {
+      res.json({ success: true, invoice });
+    } else {
+      res.status(404).json({ error: 'Счет не найден' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Получить статус сервиса напоминаний
+app.get('/api/payment-reminders/status', (req, res) => {
+  try {
+    if (paymentReminderService) {
+      const status = paymentReminderService.getStatus();
+      res.json(status);
+    } else {
+      res.json({ isRunning: false, message: 'Сервис напоминаний не инициализирован' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Ручная проверка и отправка напоминаний
+app.post('/api/payment-reminders/check-now', async (req, res) => {
+  try {
+    if (!paymentReminderService) {
+      return res.status(400).json({ error: 'Сервис напоминаний не инициализирован' });
+    }
+
+    // Запускаем проверку в фоновом режиме
+    paymentReminderService.checkAndSendReminders().catch(err => {
+      console.error('Ошибка при ручной проверке напоминаний:', err);
+    });
+
+    res.json({ success: true, message: 'Проверка напоминаний запущена' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Отправить напоминание для конкретного счета прямо сейчас
+app.post('/api/payment-reminders/send-now', async (req, res) => {
+  try {
+    const { invoiceId } = req.body;
+
+    if (!invoiceId) {
+      return res.status(400).json({ error: 'Не указан ID счета' });
+    }
+
+    if (!paymentReminderService) {
+      return res.status(400).json({ error: 'Сервис напоминаний не инициализирован' });
+    }
+
+    // Получаем счет
+    const invoice = db.getInvoiceById(invoiceId);
+    if (!invoice) {
+      return res.status(404).json({ error: 'Счет не найден' });
+    }
+
+    // Проверки
+    if (invoice.paid) {
+      return res.status(400).json({ error: 'Счет уже оплачен' });
+    }
+
+    if (!invoice.clientPhone) {
+      return res.status(400).json({ error: 'У клиента не указан номер телефона' });
+    }
+
+    // Отправляем напоминание
+    const result = await paymentReminderService.sendReminder(invoice);
+
+    if (result.success) {
+      // Обновляем счет
+      db.updateInvoice(invoiceId, {
+        lastReminderSent: new Date().toISOString(),
+        reminderCount: (invoice.reminderCount || 0) + 1
+      });
+
+      res.json({
+        success: true,
+        message: `Напоминание отправлено клиенту ${invoice.client}`
+      });
+    } else {
+      res.status(500).json({ error: result.error || 'Ошибка отправки напоминания' });
+    }
+  } catch (error) {
+    console.error('Ошибка отправки напоминания:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API endpoint для сохранения настроек WhatsApp сообщений
+app.post('/api/whatsapp/settings', (req, res) => {
+  try {
+    const { greeting, reminder } = req.body;
+    const settingsPath = path.join(__dirname, '../data/whatsapp-settings.json');
+
+    const settings = {
+      greeting: greeting || '',
+      reminder: reminder || ''
+    };
+
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+
+    res.json({ success: true, message: 'Настройки сохранены' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API endpoint для получения настроек WhatsApp сообщений
+app.get('/api/whatsapp/settings', (req, res) => {
+  try {
+    const settingsPath = path.join(__dirname, '../data/whatsapp-settings.json');
+
+    if (fs.existsSync(settingsPath)) {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      res.json({ success: true, settings });
+    } else {
+      // Возвращаем настройки по умолчанию
+      res.json({
+        success: true,
+        settings: {
+          greeting: 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.',
+          reminder: 'Добрый день!\n\nНапоминаем об оплате счета №{номер}.\n\nКлиент: {клиент}\nСумма: {сумма} ₽\nДата выставления: {дата}\nПросрочка: {дни}\n\nПожалуйста, произведите оплату в ближайшее время.\n\nС уважением.'
+        }
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Страница склада
 app.get('/warehouse', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/warehouse.html'));
@@ -1215,6 +1534,21 @@ app.get('/settings', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/settings.html'));
 });
 
+// Страница заказов поставщикам
+app.get('/supplier-orders', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/supplier-orders.html'));
+});
+
+// Публичный каталог товаров и услуг
+app.get('/catalog', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/catalog.html'));
+});
+
+// Розничная продажа (с авторизацией)
+app.get('/retail', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/retail.html'));
+});
+
 // Запуск сервера
 app.listen(PORT, () => {
   console.log('╔════════════════════════════════════════════════════════╗');
@@ -1222,6 +1556,12 @@ app.listen(PORT, () => {
   console.log('╚════════════════════════════════════════════════════════╝');
   console.log('');
   console.log(`🌐 Откройте браузер: http://localhost:${PORT}`);
+});
+
+// Дополнительный порт 10801 для внешнего доступа
+const EXTERNAL_PORT = 10801;
+app.listen(EXTERNAL_PORT, () => {
+  console.log(`🌐 Внешний доступ: http://localhost:${EXTERNAL_PORT}`);
   console.log('');
 
   if (invoiceService.isYandexDiskConfigured()) {
@@ -1249,6 +1589,10 @@ async function initWhatsApp() {
     // Запускаем планировщик автоматической рассылки после инициализации WhatsApp
     autoSendScheduler = new AutoSendScheduler(whatsappManager);
     autoSendScheduler.start();
+
+    // Запускаем сервис напоминаний об оплате
+    paymentReminderService = new PaymentReminderService(whatsappManager);
+    paymentReminderService.start();
   } catch (error) {
     console.error('❌ Ошибка инициализации WhatsApp:', error.message);
     console.error('   WhatsApp отправка будет недоступна');

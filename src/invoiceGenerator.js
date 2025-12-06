@@ -99,7 +99,8 @@ class InvoiceGenerator {
         // Создаем PDF документ
         const doc = new PDFDocument({
           size: 'A4',
-          margins: { top: 50, bottom: 50, left: 50, right: 50 }
+          margins: { top: 30, bottom: 30, left: 40, right: 40 },
+          bufferPages: true
         });
 
         // Создаем поток для записи
@@ -119,19 +120,19 @@ class InvoiceGenerator {
         }
 
         // Заголовок
-        doc.fontSize(16)
+        doc.fontSize(14)
            .font(useCustomFont ? 'DejaVuBold' : 'Helvetica-Bold')
            .text(`Счет № ${invoiceData.invoiceNumber}`, { align: 'center' });
 
         // Клиент
         if (invoiceData.clientName) {
-          doc.moveDown(0.5);
-          doc.fontSize(11)
+          doc.moveDown(0.3);
+          doc.fontSize(10)
              .font(useCustomFont ? 'DejaVu' : 'Helvetica')
              .text(`Клиент: ${invoiceData.clientName}`, { align: 'center' });
         }
 
-        doc.moveDown(2);
+        doc.moveDown(1);
 
         // Таблица с товарами
         const tableTop = doc.y;

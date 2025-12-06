@@ -69,10 +69,11 @@ export function revokeToken(token) {
  * Middleware для проверки авторизации
  */
 export function authMiddleware(req, res, next) {
-  // Пропускаем страницу логина, все API и статические ресурсы, и все HTML страницы
+  // Пропускаем страницу логина, публичный каталог, все API и статические ресурсы, и все HTML страницы
   // Авторизация для HTML страниц проверяется на клиенте через auth.js
   if (req.path === '/login.html' ||
       req.path === '/login' ||
+      req.path === '/catalog' ||  // Публичный каталог
       req.path.startsWith('/api/') ||
       req.path.endsWith('.html') ||
       req.path.endsWith('.css') ||

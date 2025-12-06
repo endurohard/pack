@@ -48,6 +48,10 @@ class AuthDatabase {
    * Validate credentials
    */
   validateCredentials(username, password) {
+    // ВАЖНО: всегда перечитываем данные из файла перед проверкой
+    // чтобы использовать актуальные учетные данные
+    this.loadData();
+
     const passwordHash = hashPassword(password);
     return username === this.authData.username &&
            passwordHash === this.authData.passwordHash;
@@ -57,6 +61,8 @@ class AuthDatabase {
    * Get current username
    */
   getUsername() {
+    // ВАЖНО: всегда перечитываем данные из файла
+    this.loadData();
     return this.authData.username;
   }
 
@@ -64,6 +70,9 @@ class AuthDatabase {
    * Change credentials
    */
   changeCredentials(currentPassword, newUsername, newPassword) {
+    // ВАЖНО: перечитываем данные из файла перед изменением
+    this.loadData();
+
     // Validate current password
     const currentPasswordHash = hashPassword(currentPassword);
     if (currentPasswordHash !== this.authData.passwordHash) {
@@ -85,6 +94,9 @@ class AuthDatabase {
     this.authData.passwordHash = hashPassword(newPassword);
     this.authData.updatedAt = new Date().toISOString();
     this.saveData();
+
+    // ВАЖНО: перезагружаем данные из файла, чтобы убедиться что они синхронизированы
+    this.loadData();
 
     return {
       username: this.authData.username,

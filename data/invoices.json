@@ -1,5 +1,638 @@
 [
   {
+    "id": "1763153282405",
+    "invoiceNumber": 58,
+    "filename": "Счет_58_PahPah-Group_2025-12-03.pdf",
+    "amount": 12200,
+    "items": [
+      {
+        "name": "Обслуживание АТС",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 5700,
+        "amount": 5700
+      },
+      {
+        "name": "Многоканальность",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 1500,
+        "amount": 1500
+      },
+      {
+        "name": "Пакет минут 6000",
+        "unit": "шт",
+        "quantity": 1,
+        "price": 5000,
+        "amount": 5000
+      }
+    ],
+    "client": "PahPah-Group",
+    "clientPhone": "+79887775500",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2025-12-14T15:56:00.274Z",
+    "paid": true,
+    "paidAt": "2025-12-06T15:35:00.000Z",
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2026-01-01T00:00:00.000Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null,
+    "expenses": [],
+    "updatedAt": "2025-12-06T15:35:00.000Z",
+    "lastWhatsAppSent": "2025-12-03T09:28:43.568Z",
+    "whatsAppSentCount": 1,
+    "reminderEnabled": true,
+    "lastReminderSentAt": "2025-12-06T10:00:43.952Z"
+  },
+  {
+    "id": "1763153320534",
+    "invoiceNumber": "059",
+    "filename": "Счет_059_Gusto_2025-11-14.pdf",
+    "amount": 5000,
+    "items": [
+      {
+        "name": "Обслуживание АТС",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 5000,
+        "amount": 5000
+      }
+    ],
+    "discount": null,
+    "client": "\"Gusto\"",
+    "clientPhone": "+79634255599",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2025-12-13T14:38:16.789Z",
+    "paid": false,
+    "paidAt": null,
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2025-12-04T00:00:00.000Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null,
+    "expenses": []
+  },
+  {
+    "id": "1763462771001",
+    "invoiceNumber": "072",
+    "filename": "Счет_072_Союз_2025-11-18.pdf",
+    "amount": 9450,
+    "items": [
+      {
+        "name": "Обслуживание АТС",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 5700,
+        "amount": 5700
+      },
+      {
+        "name": "Многоканальность",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 3150,
+        "amount": 3150
+      },
+      {
+        "name": "Дополнительная линия ",
+        "unit": "мес",
+        "quantity": 2,
+        "price": 300,
+        "amount": 600
+      }
+    ],
+    "discount": null,
+    "client": "\"Союз\"",
+    "clientPhone": "+79331111830",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2025-12-13T14:36:23.693Z",
+    "paid": false,
+    "paidAt": null,
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2025-12-13T14:36:23.693Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null,
+    "lastWhatsAppSent": null,
+    "whatsAppSentCount": 0,
+    "reminderEnabled": false,
+    "lastReminderSentAt": null,
+    "expenses": []
+  },
+  {
+    "id": "1763153326855",
+    "invoiceNumber": "060",
+    "filename": "Счет_060_Лайм_2025-11-14.pdf",
+    "amount": 11850,
+    "items": [
+      {
+        "name": "Обслуживание АТС",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 5700,
+        "amount": 5700
+      },
+      {
+        "name": "Многоканальность",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 3150,
+        "amount": 3150
+      },
+      {
+        "name": "Пакет минут 5000",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 3000,
+        "amount": 3000
+      }
+    ],
+    "discount": null,
+    "client": "\"Лайм\"",
+    "clientPhone": "+79894767379",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2025-12-13T14:34:16.803Z",
+    "paid": false,
+    "paidAt": null,
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2025-12-13T14:34:16.803Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null,
+    "expenses": []
+  },
+  {
+    "id": "1763358483660",
+    "invoiceNumber": "065",
+    "filename": "Счет_065_RINGO_2025-11-17.pdf",
+    "amount": 6000,
+    "items": [
+      {
+        "name": "Обслуживание АТС",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 6000,
+        "amount": 6000
+      }
+    ],
+    "discount": null,
+    "client": "\"RINGO\"",
+    "clientPhone": "+79882112970",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2025-12-13T14:32:03.648Z",
+    "paid": false,
+    "paidAt": null,
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2025-12-13T14:32:03.648Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null,
+    "lastWhatsAppSent": null,
+    "whatsAppSentCount": 0,
+    "reminderEnabled": false,
+    "lastReminderSentAt": null,
+    "expenses": []
+  },
+  {
+    "id": "1763153329501",
+    "invoiceNumber": "061",
+    "filename": "Счет_061_Баклажан_2025-11-14.pdf",
+    "amount": 13850,
+    "items": [
+      {
+        "name": "Обслуживание АТС",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 5700,
+        "amount": 5700
+      },
+      {
+        "name": "Многоканальность",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 3150,
+        "amount": 3150
+      },
+      {
+        "name": "Пакет минут 6000",
+        "unit": "шт",
+        "quantity": 1,
+        "price": 5000,
+        "amount": 5000
+      }
+    ],
+    "discount": null,
+    "client": "\"Баклажан\"",
+    "clientPhone": "+79382017474",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2025-12-13T14:31:03.838Z",
+    "paid": false,
+    "paidAt": null,
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2025-12-13T14:31:03.838Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null,
+    "expenses": []
+  },
+  {
+    "id": "1763264318393",
+    "invoiceNumber": "064",
+    "filename": "Счет_064_Dorum&Gyros_2025-11-16.pdf",
+    "amount": 10850,
+    "items": [
+      {
+        "name": "Обслуживание АТС",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 5700,
+        "amount": 5700
+      },
+      {
+        "name": "Многоканальность",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 3150,
+        "amount": 3150
+      },
+      {
+        "name": "Пакет минут 2500",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 2000,
+        "amount": 2000
+      }
+    ],
+    "discount": null,
+    "client": "\"Dorum&Gyros\"",
+    "clientPhone": "+79288776552",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2025-12-13T14:22:44.387Z",
+    "paid": false,
+    "paidAt": null,
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2025-12-13T14:22:44.387Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null,
+    "expenses": []
+  },
+  {
+    "id": "1763461752827",
+    "invoiceNumber": "071",
+    "filename": "Счет_071_Фундук_2025-11-18.pdf",
+    "amount": 10200,
+    "items": [
+      {
+        "name": "Обслуживание АТС",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 5700,
+        "amount": 5700
+      },
+      {
+        "name": "Многоканальность",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 3200,
+        "amount": 3200
+      },
+      {
+        "name": "Пакет минут 1000",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 1300,
+        "amount": 1300
+      }
+    ],
+    "discount": null,
+    "client": "\"Фундук\"",
+    "clientPhone": "+79280581008",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2025-12-13T14:17:52.441Z",
+    "paid": false,
+    "paidAt": null,
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2025-12-13T14:17:52.441Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null,
+    "lastWhatsAppSent": null,
+    "whatsAppSentCount": 0,
+    "reminderEnabled": false,
+    "lastReminderSentAt": null,
+    "expenses": []
+  },
+  {
+    "id": "1763153334592",
+    "invoiceNumber": "062",
+    "filename": "Счет_062_Якудза_2025-11-14.pdf",
+    "amount": 10050,
+    "items": [
+      {
+        "name": "Обслуживание АТС",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 5700,
+        "amount": 5700
+      },
+      {
+        "name": "Многоканальность",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 3150,
+        "amount": 3150
+      },
+      {
+        "name": "Пакет минут 1000",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 1200,
+        "amount": 1200
+      }
+    ],
+    "discount": null,
+    "client": "\"Якудза\"",
+    "clientPhone": "+79674711111",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2025-12-13T14:16:09.869Z",
+    "paid": false,
+    "paidAt": null,
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2025-12-13T14:16:09.869Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null,
+    "expenses": []
+  },
+  {
+    "id": "1763054829125",
+    "invoiceNumber": "049",
+    "filename": "Счет_049_Слойка_2025-11-13.pdf",
+    "amount": 13000,
+    "items": [
+      {
+        "name": "Обслуживание АТС",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 8000,
+        "amount": 8000
+      },
+      {
+        "name": "Пакет минут 6000",
+        "unit": "шт",
+        "quantity": 1,
+        "price": 5000,
+        "amount": 5000
+      }
+    ],
+    "discount": null,
+    "client": "\"Слойка\"",
+    "clientPhone": "+79634110066",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2025-12-13T14:13:36.550Z",
+    "paid": false,
+    "paidAt": null,
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2025-12-13T14:13:36.550Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null
+  },
+  {
+    "id": "1763153338294",
+    "invoiceNumber": "063",
+    "filename": "Счет_063_Jasmin_2025-11-14.pdf",
+    "amount": 10150,
+    "items": [
+      {
+        "name": "Обслуживание АТС",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 5700,
+        "amount": 5700
+      },
+      {
+        "name": "Многоканальность",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 3150,
+        "amount": 3150
+      },
+      {
+        "name": "Пакет минут 1000",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 1300,
+        "amount": 1300
+      }
+    ],
+    "discount": null,
+    "client": "\"Jasmin\"",
+    "clientPhone": "+79604180222",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2025-12-13T14:04:16.886Z",
+    "paid": false,
+    "paidAt": null,
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2025-12-13T14:04:16.886Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null,
+    "expenses": []
+  },
+  {
+    "id": "1763366130610",
+    "invoiceNumber": "066",
+    "filename": "Счет_066_Salat_2025-11-17.pdf",
+    "amount": 14100,
+    "items": [
+      {
+        "name": "Резервный номер",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 1450,
+        "amount": 1450
+      },
+      {
+        "name": "6000 минут исходящей",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 4500,
+        "amount": 4500
+      },
+      {
+        "name": "Многоканальность",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 3150,
+        "amount": 3150
+      },
+      {
+        "name": "Аренда АТС",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 5000,
+        "amount": 5000
+      }
+    ],
+    "discount": null,
+    "client": "\"Salat\"",
+    "clientPhone": "+79282883762",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2025-12-13T13:13:52.562Z",
+    "paid": false,
+    "paidAt": null,
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2025-12-13T13:13:52.562Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null,
+    "lastWhatsAppSent": null,
+    "whatsAppSentCount": 0,
+    "reminderEnabled": false,
+    "lastReminderSentAt": null,
+    "expenses": []
+  },
+  {
+    "id": "1764754169124",
+    "invoiceNumber": 72,
+    "filename": "Счет_72_Лукманов_Магомед_2025-12-03.pdf",
+    "amount": 5000,
+    "items": [
+      {
+        "name": "Сервис Автострахования",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 5000,
+        "amount": 5000
+      }
+    ],
+    "discount": null,
+    "client": "Лукманов Магомед",
+    "clientPhone": "+79268850000",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2025-12-03T09:29:29.124Z",
+    "paid": true,
+    "paidAt": "2025-12-06T15:30:00.000Z",
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2026-01-01T00:00:00.000Z",
+    "autoSendEnabled": true,
+    "lastSentAt": null,
+    "lastWhatsAppSent": "2025-12-03T09:30:09.977Z",
+    "whatsAppSentCount": 1,
+    "reminderEnabled": true,
+    "lastReminderSentAt": "2025-12-06T10:11:28.076Z",
+    "expenses": [],
+    "updatedAt": "2025-12-06T10:11:28.076Z"
+  },
+  {
+    "id": "1763135760274",
+    "invoiceNumber": 56,
+    "filename": "Счет_56_PahPah-Group_2025-11-14.pdf",
+    "amount": 7200,
+    "items": [
+      {
+        "name": "Обслуживание АТС",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 5700,
+        "amount": 5700
+      },
+      {
+        "name": "Многоканальность",
+        "unit": "мес",
+        "quantity": 1,
+        "price": 1500,
+        "amount": 1500
+      }
+    ],
+    "discount": null,
+    "client": "PahPah-Group",
+    "clientPhone": "+79887775500",
+    "isRecurring": true,
+    "payment": {
+      "cardNumber": "5280-4137-5406-3845",
+      "sbpPhone": "9633707007",
+      "sbpBank": "ТИНЬКОФФ"
+    },
+    "createdAt": "2025-11-14T15:56:00.274Z",
+    "paid": true,
+    "paidAt": "2025-11-14T20:48:02.124Z",
+    "yandexPath": null,
+    "publicUrl": null,
+    "nextSendDate": "2025-12-14T00:00:00.000Z",
+    "autoSendEnabled": false,
+    "lastSentAt": null,
+    "expenses": []
+  },
+  {
     "id": "1763044790457",
     "invoiceNumber": 35,
     "filename": "Счет_35_Кусочек_2025-11-13.pdf",
@@ -66,11 +699,11 @@
       "sbpBank": "ТИНЬКОФФ"
     },
     "createdAt": "2025-11-13T14:38:16.789Z",
-    "paid": false,
-    "paidAt": null,
+    "paid": true,
+    "paidAt": "2025-11-14T20:48:40.368Z",
     "yandexPath": null,
     "publicUrl": null,
-    "autoSendEnabled": true,
+    "autoSendEnabled": false,
     "nextSendDate": "2025-12-13T00:00:00.000Z"
   },
   {
@@ -110,13 +743,29 @@
       "sbpBank": "ТИНЬКОФФ"
     },
     "createdAt": "2025-11-13T14:36:23.693Z",
-    "paid": false,
-    "paidAt": null,
+    "paid": true,
+    "paidAt": "2025-11-18T10:46:10.730Z",
     "yandexPath": null,
     "publicUrl": null,
-    "autoSendEnabled": true,
+    "autoSendEnabled": false,
     "nextSendDate": "2025-12-13T00:00:00.000Z",
-    "updatedAt": "2025-11-13T14:58:38.415Z"
+    "updatedAt": "2025-11-18T10:00:44.359Z",
+    "lastWhatsAppSent": "2025-11-17T13:09:15.889Z",
+    "whatsAppSentCount": 2,
+    "reminderEnabled": true,
+    "lastReminderSent": "2025-11-17T13:33:05.518Z",
+    "reminderCount": 1,
+    "lastReminderSentAt": "2025-11-18T10:00:44.358Z",
+    "expenses": [
+      {
+        "id": "1764187632803",
+        "date": "2025-11-26",
+        "amount": 1250,
+        "description": "933193",
+        "category": "Аренда",
+        "createdAt": "2025-11-26T20:07:12.803Z"
+      }
+    ]
   },
   {
     "id": "1763044456803",
@@ -156,12 +805,22 @@
       "sbpBank": "ТИНЬКОФФ"
     },
     "createdAt": "2025-11-13T14:34:16.803Z",
-    "paid": false,
-    "paidAt": null,
+    "paid": true,
+    "paidAt": "2025-11-14T20:48:46.701Z",
     "yandexPath": null,
     "publicUrl": null,
-    "autoSendEnabled": true,
-    "nextSendDate": "2025-12-13T00:00:00.000Z"
+    "autoSendEnabled": false,
+    "nextSendDate": "2025-12-13T00:00:00.000Z",
+    "expenses": [
+      {
+        "id": "1763533737082",
+        "date": "2025-11-19",
+        "amount": 860,
+        "description": "79882928085",
+        "category": "Аренда",
+        "createdAt": "2025-11-19T06:28:57.082Z"
+      }
+    ]
   },
   {
     "id": "1763044323648",
@@ -187,12 +846,16 @@
       "sbpBank": "ТИНЬКОФФ"
     },
     "createdAt": "2025-11-13T14:32:03.648Z",
-    "paid": false,
-    "paidAt": null,
+    "paid": true,
+    "paidAt": "2025-11-17T05:48:03.384Z",
     "yandexPath": null,
     "publicUrl": null,
-    "autoSendEnabled": true,
-    "nextSendDate": "2025-12-13T00:00:00.000Z"
+    "autoSendEnabled": false,
+    "nextSendDate": "2025-12-13T00:00:00.000Z",
+    "lastWhatsAppSent": "2025-11-17T07:45:08.962Z",
+    "whatsAppSentCount": 1,
+    "reminderEnabled": true,
+    "updatedAt": "2025-11-17T07:45:08.963Z"
   },
   {
     "id": "1763044263838",
@@ -232,11 +895,11 @@
       "sbpBank": "ТИНЬКОФФ"
     },
     "createdAt": "2025-11-13T14:31:03.838Z",
-    "paid": false,
-    "paidAt": null,
+    "paid": true,
+    "paidAt": "2025-11-14T20:48:49.337Z",
     "yandexPath": null,
     "publicUrl": null,
-    "autoSendEnabled": true,
+    "autoSendEnabled": false,
     "nextSendDate": "2025-12-13T00:00:00.000Z"
   },
   {
@@ -277,12 +940,22 @@
       "sbpBank": "ТИНЬКОФФ"
     },
     "createdAt": "2025-11-13T14:22:44.387Z",
-    "paid": false,
-    "paidAt": null,
+    "paid": true,
+    "paidAt": "2025-11-16T03:38:38.182Z",
     "yandexPath": null,
     "publicUrl": null,
-    "autoSendEnabled": true,
-    "nextSendDate": "2025-12-13T00:00:00.000Z"
+    "autoSendEnabled": false,
+    "nextSendDate": "2025-12-13T00:00:00.000Z",
+    "expenses": [
+      {
+        "id": "1763533574756",
+        "date": "2025-11-19",
+        "amount": 500,
+        "description": "Пополнение 9882900268",
+        "category": "Прочее",
+        "createdAt": "2025-11-19T06:26:14.756Z"
+      }
+    ]
   },
   {
     "id": "1763043472441",
@@ -321,13 +994,19 @@
       "sbpBank": "ТИНЬКОФФ"
     },
     "createdAt": "2025-11-13T14:17:52.441Z",
-    "paid": false,
-    "paidAt": null,
+    "paid": true,
+    "paidAt": "2025-11-18T10:29:12.560Z",
     "yandexPath": null,
     "publicUrl": null,
-    "updatedAt": "2025-11-13T14:28:01.718Z",
-    "autoSendEnabled": true,
-    "nextSendDate": "2025-12-13T00:00:00.000Z"
+    "updatedAt": "2025-11-18T10:11:31.300Z",
+    "autoSendEnabled": false,
+    "nextSendDate": "2025-12-13T00:00:00.000Z",
+    "lastWhatsAppSent": "2025-11-17T07:45:09.007Z",
+    "whatsAppSentCount": 1,
+    "reminderEnabled": true,
+    "lastReminderSent": "2025-11-17T13:27:50.992Z",
+    "reminderCount": 1,
+    "lastReminderSentAt": "2025-11-18T10:11:31.300Z"
   },
   {
     "id": "1763043369869",
@@ -367,25 +1046,35 @@
       "sbpBank": "ТИНЬКОФФ"
     },
     "createdAt": "2025-11-13T14:16:09.869Z",
-    "paid": false,
-    "paidAt": null,
+    "paid": true,
+    "paidAt": "2025-11-14T20:48:54.471Z",
     "yandexPath": null,
     "publicUrl": null,
-    "autoSendEnabled": true,
-    "nextSendDate": "2025-12-13T00:00:00.000Z"
+    "autoSendEnabled": false,
+    "nextSendDate": "2025-12-13T00:00:00.000Z",
+    "expenses": [
+      {
+        "id": "1763533669359",
+        "date": "2025-11-19",
+        "amount": 500,
+        "description": "79674008800",
+        "category": "Прочее",
+        "createdAt": "2025-11-19T06:27:49.359Z"
+      }
+    ]
   },
   {
     "id": "1763043216550",
     "invoiceNumber": 25,
     "filename": "Счет_25_Слойка_2025-11-13.pdf",
-    "amount": 10000,
+    "amount": 13000,
     "items": [
       {
         "name": "Обслуживание АТС",
         "unit": "мес",
         "quantity": 1,
-        "price": 5000,
-        "amount": 5000
+        "price": 8000,
+        "amount": 8000
       },
       {
         "name": "Пакет минут 6000",
@@ -404,13 +1093,23 @@
       "sbpBank": "ТИНЬКОФФ"
     },
     "createdAt": "2025-11-13T14:13:36.550Z",
-    "paid": false,
-    "paidAt": null,
+    "paid": true,
+    "paidAt": "2025-11-13T17:27:08.984Z",
     "yandexPath": null,
     "publicUrl": null,
-    "autoSendEnabled": true,
+    "autoSendEnabled": false,
     "nextSendDate": "2025-12-13T00:00:00.000Z",
-    "updatedAt": "2025-11-13T14:58:54.213Z"
+    "updatedAt": "2025-11-13T16:38:55.653Z",
+    "expenses": [
+      {
+        "id": "1763099853575",
+        "date": "2025-11-14T05:57:32.851Z",
+        "amount": 150,
+        "description": "Оплата по номеру 9882900291",
+        "category": "Прочее",
+        "createdAt": "2025-11-14T05:57:33.575Z"
+      }
+    ]
   },
   {
     "id": "1763042656886",
@@ -450,12 +1149,22 @@
       "sbpBank": "ТИНЬКОФФ"
     },
     "createdAt": "2025-11-13T14:04:16.886Z",
-    "paid": false,
-    "paidAt": null,
+    "paid": true,
+    "paidAt": "2025-11-14T20:48:58.178Z",
     "yandexPath": null,
     "publicUrl": null,
-    "autoSendEnabled": true,
-    "nextSendDate": "2025-12-13T00:00:00.000Z"
+    "autoSendEnabled": false,
+    "nextSendDate": "2025-12-13T00:00:00.000Z",
+    "expenses": [
+      {
+        "id": "1763806005449",
+        "date": "2025-11-22",
+        "amount": 860,
+        "description": "9894600163",
+        "category": "Аренда",
+        "createdAt": "2025-11-22T10:06:45.449Z"
+      }
+    ]
   },
   {
     "id": "1763039632562",
@@ -503,63 +1212,14 @@
     },
     "createdAt": "2025-11-13T13:13:52.562Z",
     "paid": true,
-    "paidAt": "2025-11-13T15:20:51.818Z",
+    "paidAt": "2025-11-17T07:55:30.330Z",
     "yandexPath": null,
     "publicUrl": null,
-    "autoSendEnabled": true,
-    "nextSendDate": "2025-12-13T00:00:00.000Z"
-  },
-  {
-    "id": "1763047251961",
-    "invoiceNumber": "037",
-    "filename": "Счет_037_Salat_2025-11-13.pdf",
-    "amount": 14100,
-    "items": [
-      {
-        "name": "Резервный номер",
-        "unit": "мес",
-        "quantity": 1,
-        "price": 1450,
-        "amount": 1450
-      },
-      {
-        "name": "6000 минут исходящей",
-        "unit": "мес",
-        "quantity": 1,
-        "price": 4500,
-        "amount": 4500
-      },
-      {
-        "name": "Многоканальность",
-        "unit": "мес",
-        "quantity": 1,
-        "price": 3150,
-        "amount": 3150
-      },
-      {
-        "name": "Аренда АТС",
-        "unit": "мес",
-        "quantity": 1,
-        "price": 5000,
-        "amount": 5000
-      }
-    ],
-    "discount": null,
-    "client": "\"Salat\"",
-    "clientPhone": "+79282883762",
-    "isRecurring": true,
-    "payment": {
-      "cardNumber": "5280-4137-5406-3845",
-      "sbpPhone": "9633707007",
-      "sbpBank": "ТИНЬКОФФ"
-    },
-    "createdAt": "2025-11-13T15:20:51.961Z",
-    "paid": false,
-    "paidAt": null,
-    "yandexPath": null,
-    "publicUrl": null,
-    "nextSendDate": "2025-12-13T15:20:51.961Z",
-    "autoSendEnabled": true,
-    "lastSentAt": null
+    "autoSendEnabled": false,
+    "nextSendDate": "2025-12-13T00:00:00.000Z",
+    "lastWhatsAppSent": "2025-11-17T07:45:11.712Z",
+    "whatsAppSentCount": 1,
+    "reminderEnabled": true,
+    "updatedAt": "2025-11-17T07:45:11.712Z"
   }
 ]
