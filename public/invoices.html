@@ -928,10 +928,18 @@
                     ? `<button class="action-btn action-send-reminder" onclick="sendPaymentReminder('${invoice.id}')" title="Отправить напоминание об оплате">🔔</button>`
                     : '';
 
+                // Для счетов с авторассылкой показываем дату следующей отправки, иначе дату создания
+                const dateToShow = invoice.autoSendEnabled && invoice.nextSendDate
+                    ? invoice.nextSendDate
+                    : invoice.createdAt;
+                const dateLabel = invoice.autoSendEnabled && invoice.nextSendDate
+                    ? '<span title="Дата следующей рассылки" style="color: #2e7d32;">📅 ' + formatDate(dateToShow) + '</span>'
+                    : formatDate(dateToShow);
+
                 tr.innerHTML = `
                     <td style="word-break: break-word;"><strong>#${invoice.invoiceNumber}</strong>${recurringBadge}${autoSendBadge}${reminderBadge}${whatsappSentBadge}</td>
                     <td style="word-break: break-word;">${invoice.client || '<span style="color: #999;">Не указан</span>'}</td>
-                    <td style="font-size: 0.85em;">${formatDate(invoice.createdAt)}</td>
+                    <td style="font-size: 0.85em;">${dateLabel}</td>
                     <td><strong>${formatMoney(invoice.amount)}</strong></td>
                     <td class="toggle-payment" onclick="togglePayment('${invoice.id}', ${!invoice.paid})">${statusBadge}</td>
                     <td>
