@@ -969,6 +969,15 @@
             const invoiceNumber = invoice ? invoice.invoiceNumber : 'неизвестен';
             const clientName = invoice ? invoice.client : 'неизвестен';
 
+            // Если отменяем оплату - запрашиваем подтверждение
+            if (!paid && invoice.paid) {
+                const confirmMessage = `Вы уверены, что хотите отменить оплату счета №${invoiceNumber} для клиента ${clientName}?`;
+                if (!confirm(confirmMessage)) {
+                    console.log(`[Frontend] Отмена оплаты отменена пользователем для счета №${invoiceNumber}`);
+                    return;
+                }
+            }
+
             console.log(`[Frontend] Изменение статуса оплаты для счета №${invoiceNumber} (${clientName}): ${paid ? 'оплачен' : 'не оплачен'}`);
 
             try {
@@ -987,6 +996,12 @@
                         showNotification(
                             '✅ Счет оплачен!',
                             `Автоматически создан новый счет №${result.newInvoice.invoiceNumber} на следующий месяц с авторассылкой`
+                        );
+                    } else if (!paid) {
+                        // Показываем уведомление при отмене оплаты
+                        showNotification(
+                            '⚠️ Оплата отменена',
+                            `Счет №${invoiceNumber} помечен как неоплаченный`
                         );
                     }
 
