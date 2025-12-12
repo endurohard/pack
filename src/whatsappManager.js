@@ -13,57 +13,18 @@ class WhatsAppManager {
     this.isReady = false;
     this.sessionDir = path.join(__dirname, '../data/whatsapp-session');
 
-    // Создаем директорию для сессии если её нет
     if (!fs.existsSync(this.sessionDir)) {
       fs.mkdirSync(this.sessionDir, { recursive: true });
     }
   }
 
-  /**
-   * Убить старые процессы Chrome связанные с WhatsApp session
-   */
-  async killOldChromeProcesses() {
-    try {
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execPromise = promisify(exec);
-
-      console.log('🔍 Проверка старых Chrome процессов...');
-
-      // Проверяем наличие процессов Chrome с нашей сессией
-      try {
-        const { stdout } = await execPromise('pgrep -f "chrome.*whatsapp-session"');
-        if (stdout.trim()) {
-          console.log('⚠️  Обнаружены старые Chrome процессы, завершаем...');
-          await execPromise('pkill -9 -f "chrome.*whatsapp-session"');
-          // Даём время на завершение
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          console.log('✅ Старые Chrome процессы завершены');
-        } else {
-          console.log('✅ Старых Chrome процессов не обнаружено');
-        }
-      } catch (error) {
-        // Если pgrep не нашел процессы, это нормально
-        console.log('✅ Старых Chrome процессов не обнаружено');
-      }
-    } catch (error) {
-      console.warn('⚠️  Не удалось проверить старые процессы:', error.message);
-    }
-  }
-
-  /**
-   * Инициализация браузера и WhatsApp Web
-   */
   async initialize() {
     try {
-      console.log('🚀 Запуск браузера для WhatsApp Web...');
-
-      // Проверяем и убиваем старые процессы Chrome если они есть
-      await this.killOldChromeProcesses();
+      console.log('📱 Инициализация WhatsApp Web через Puppeteer...');
 
       this.browser = await puppeteer.launch({
-        headless: false, // Нужен non-headless для работы с WhatsApp Web
-        userDataDir: this.sessionDir, // Сохраняем сессию
+        headless: false,
+        userDataDir: this.sessionDir,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -71,28 +32,47 @@ class WhatsAppManager {
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
           '--no-zygote',
-          '--disable-gpu',
-          '--remote-debugging-port=9222', // Включаем удаленную отладку
-          '--disable-blink-features=AutomationControlled'
+          '--disable-gpu'
         ]
       });
 
       this.page = await this.browser.newPage();
-      await this.page.setUserAgent(
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      );
+      await this.page.setViewport({ width: 1280, height: 720 });
 
-      console.log('🌐 Открытие WhatsApp Web...');
+      console.log('🌐 Открываю web.whatsapp.com...');
       await this.page.goto('https://web.whatsapp.com', {
         waitUntil: 'networkidle2',
         timeout: 60000
       });
 
-      // Ждем либо QR-код, либо успешную авторизацию
-      await this.waitForAuth();
+      console.log('⏳ Ожидание загрузки WhatsApp Web...');
+      console.log('📱 Отсканируйте QR-код в браузере');
 
-      console.log('✅ WhatsApp Web готов к использованию!');
-      this.isReady = true;
+      // Проверяем авторизацию (несколько вариантов селекторов)
+      const checkAuth = setInterval(async () => {
+        try {
+          const isAuthenticated = await this.page.evaluate(() => {
+            // Проверяем несколько возможных селекторов для авторизованной страницы
+            const hasChats = document.querySelector('[data-testid="chat-list"]') !== null;
+            const hasSidebar = document.querySelector('#side') !== null;
+            const hasUserAvatar = document.querySelector('[data-testid="default-user"]') !== null;
+            const noLanding = document.querySelector('.landing-main') === null;
+
+            // Если есть хотя бы 2 признака авторизации
+            const authCount = [hasChats, hasSidebar, hasUserAvatar, noLanding].filter(Boolean).length;
+            return authCount >= 2;
+          });
+
+          if (isAuthenticated) {
+            clearInterval(checkAuth);
+            this.isReady = true;
+            console.log('✅ WhatsApp Web готов к использованию!');
+          }
+        } catch (e) {
+          // Игнорируем ошибки при проверке
+          console.log('⚠️  Ошибка проверки авторизации:', e.message);
+        }
+      }, 5000);
 
     } catch (error) {
       console.error('❌ Ошибка инициализации WhatsApp:', error.message);
@@ -100,74 +80,12 @@ class WhatsAppManager {
     }
   }
 
-  /**
-   * Ожидание авторизации
-   */
-  async waitForAuth() {
-    try {
-      console.log('📱 Проверка авторизации...');
-
-      // Ждем несколько секунд, чтобы страница загрузилась
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      // Проверяем, авторизованы ли мы уже - ищем элементы интерфейса WhatsApp
-      const isAuthenticated = await this.page.evaluate(() => {
-        // Ищем различные признаки авторизованного интерфейса
-        const hasChats = document.querySelector('[role="grid"]') !== null ||
-                        document.querySelector('[data-testid="chat-list"]') !== null ||
-                        document.querySelector('#pane-side') !== null ||
-                        document.querySelector('[aria-label*="Чат"]') !== null ||
-                        document.querySelector('[aria-label*="Chat"]') !== null;
-
-        const hasSearchBox = document.querySelector('[data-testid="chat-list-search"]') !== null ||
-                             document.querySelector('input[type="text"]') !== null;
-
-        return hasChats || hasSearchBox;
-      });
-
-      if (isAuthenticated) {
-        console.log('✅ Сессия сохранена, авторизация не требуется');
-        this.isReady = true;
-        return;
-      }
-
-      console.log('📱 Требуется сканирование QR-кода...');
-      console.log('⏳ Откройте WhatsApp на телефоне и отсканируйте QR-код в открывшемся браузере');
-
-      // Ждем появления интерфейса WhatsApp (любой из признаков)
-      await this.page.waitForFunction(() => {
-        const hasChats = document.querySelector('[role="grid"]') !== null ||
-                        document.querySelector('[data-testid="chat-list"]') !== null ||
-                        document.querySelector('#pane-side') !== null;
-        return hasChats;
-      }, {
-        timeout: 300000 // 5 минут на сканирование
-      });
-
-      console.log('✅ Авторизация успешна!');
-
-      // Даем время загрузиться всем чатам
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      this.isReady = true;
-
-    } catch (error) {
-      if (error.name === 'TimeoutError') {
-        console.error('❌ Время ожидания сканирования QR-кода истекло');
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Отправка сообщения в WhatsApp
-   */
   async sendMessage(phone, message) {
-    if (!this.isReady) {
-      throw new Error('WhatsApp Web не инициализирован');
+    if (!this.isReady || !this.page) {
+      throw new Error('WhatsApp Web не готов');
     }
 
     try {
-      // Нормализуем номер телефона
       let cleanPhone = phone.replace(/[^0-9]/g, '');
       if (cleanPhone.startsWith('8')) {
         cleanPhone = '7' + cleanPhone.substring(1);
@@ -176,408 +94,294 @@ class WhatsAppManager {
         cleanPhone = '7' + cleanPhone;
       }
 
-      const url = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
+      console.log(`📤 Отправка сообщения на ${cleanPhone}...`);
 
-      console.log(`📤 Открытие чата с номером ${cleanPhone}...`);
-      await this.page.goto(url, { waitUntil: 'networkidle2' });
-
-      // Ждем загрузки чата
-      await this.page.waitForSelector('[data-testid="conversation-compose-box-input"]', {
-        timeout: 10000
+      await this.page.goto(`https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`, {
+        waitUntil: 'networkidle2',
+        timeout: 30000
       });
 
-      console.log('✅ Чат открыт, сообщение подготовлено');
-
-      return {
-        success: true,
-        message: 'Чат открыт, сообщение готово к отправке'
-      };
-
-    } catch (error) {
-      console.error('❌ Ошибка отправки:', error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Отправка сообщения с файлом в WhatsApp
-   */
-  async sendMessageWithFile(phone, message, filePath) {
-    if (!this.isReady) {
-      throw new Error('WhatsApp Web не инициализирован');
-    }
-
-    try {
-      // Нормализуем номер телефона
-      let cleanPhone = phone.replace(/[^0-9]/g, '');
-      if (cleanPhone.startsWith('8')) {
-        cleanPhone = '7' + cleanPhone.substring(1);
-      }
-      if (!cleanPhone.startsWith('7')) {
-        cleanPhone = '7' + cleanPhone;
-      }
-
-      console.log(`📤 Открытие чата с номером ${cleanPhone}...`);
-
-      // Используем прямую навигацию через URL (самый надежный способ)
-      const chatUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}`;
-
-      try {
-        // Пробуем перейти по URL с длительным таймаутом
-        await this.page.goto(chatUrl, {
-          waitUntil: 'domcontentloaded',
-          timeout: 60000
-        });
-      } catch (error) {
-        // Если goto не работает, пробуем через evaluate (но без ожидания результата)
-        console.log('⚠️  Прямая навигация не удалась, пробуем альтернативный метод...');
-      }
-
-      // Даем время на загрузку чата (увеличиваем до 10 секунд)
-      await new Promise(resolve => setTimeout(resolve, 10000));
-
-      console.log('✅ Чат должен быть открыт, начинаем отправку файла');
-
-      // Пробуем найти поле ввода (несколько вариантов селекторов)
-      let inputBox = null;
-      const selectors = [
-        '[data-testid="conversation-compose-box-input"]',
-        'div[contenteditable="true"][data-tab="10"]',
-        'div[contenteditable="true"]',
-        'footer div[contenteditable="true"]'
-      ];
-
-      for (const selector of selectors) {
-        try {
-          inputBox = await this.page.waitForSelector(selector, { timeout: 5000 });
-          console.log(`✅ Найдено поле ввода с селектором: ${selector}`);
-          break;
-        } catch (e) {
-          console.log(`⚠️  Селектор ${selector} не найден, пробуем следующий...`);
-        }
-      }
-
-      if (!inputBox) {
-        throw new Error('Не удалось найти поле ввода сообщения');
-      }
-
-      console.log('📎 Ищем кнопку прикрепления...');
-
-      // Сначала пробуем найти и нажать кнопку прикрепления
-      const attachResult = await this.page.evaluate(() => {
-        // Ищем все возможные кнопки
-        const buttons = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"]'));
-
-        // Ищем кнопку с иконкой скрепки
-        const attachButton = buttons.find(btn => {
-          const hasClipIcon = btn.querySelector('[data-icon="clip"]') !== null;
-          const hasAttachIcon = btn.querySelector('[data-icon="attach"]') !== null;
-          const hasPlusIcon = btn.querySelector('[data-icon="plus"]') !== null;
-          const ariaLabel = btn.getAttribute('aria-label') || '';
-          const title = btn.getAttribute('title') || '';
-
-          return hasClipIcon || hasAttachIcon || hasPlusIcon ||
-                 ariaLabel.toLowerCase().includes('attach') ||
-                 ariaLabel.toLowerCase().includes('прикреп') ||
-                 title.toLowerCase().includes('attach') ||
-                 title.toLowerCase().includes('прикреп');
-        });
-
-        if (attachButton) {
-          attachButton.click();
-          return { success: true, found: true };
-        }
-
-        return { success: false, found: false };
-      });
-
-      if (!attachResult.found) {
-        throw new Error('❌ Не удалось найти кнопку прикрепления! Проверьте WhatsApp Web интерфейс.');
-      }
-
-      console.log('✅ Кнопка прикрепления нажата');
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      // После нажатия кнопки ищем кнопку "Документ"
-      const docResult = await this.page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"], li[role="button"]'));
-
-        const docButton = buttons.find(btn => {
-          const hasDocIcon = btn.querySelector('[data-icon="document"]') !== null;
-          const ariaLabel = btn.getAttribute('aria-label') || '';
-          const title = btn.getAttribute('title') || '';
-          const text = btn.textContent || '';
-
-          return hasDocIcon ||
-                 ariaLabel.toLowerCase().includes('document') ||
-                 ariaLabel.toLowerCase().includes('документ') ||
-                 title.toLowerCase().includes('document') ||
-                 title.toLowerCase().includes('документ') ||
-                 text.toLowerCase().includes('document') ||
-                 text.toLowerCase().includes('документ');
-        });
-
-        if (docButton) {
-          docButton.click();
-          return { success: true, found: true };
-        }
-
-        return { success: false, found: false };
-      });
-
-      if (!docResult.found) {
-        throw new Error('❌ Не удалось найти кнопку "Документ"! Проверьте WhatsApp Web интерфейс.');
-      }
-
-      console.log('✅ Кнопка "Документ" нажата');
+      await this.page.waitForSelector('[data-testid="conversation-compose-box-input"]', { timeout: 15000 });
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Теперь находим input для загрузки файлов
-      let fileInput = await this.page.$('input[type="file"]');
-
-      if (!fileInput) {
-        const allFileInputs = await this.page.$$('input[type="file"]');
-        if (allFileInputs.length === 0) {
-          throw new Error('Не удалось найти input для загрузки файлов');
-        }
-        fileInput = allFileInputs[0];
-        console.log(`✅ Найдено ${allFileInputs.length} input элементов для файлов`);
-      } else {
-        console.log('✅ Найден input для загрузки файлов');
+      const sendButton = await this.page.$('[data-testid="send"]');
+      if (sendButton) {
+        await sendButton.click();
+        console.log('✅ Сообщение отправлено');
       }
 
-      // Загружаем файл
-      await fileInput.uploadFile(filePath);
-      console.log(`📄 Файл загружен: ${filePath}`);
-
-      // Ждем загрузки файла в превью
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
-      // Теперь вводим текст в поле подписи файла (caption)
-      // Ищем поле для ввода подписи в превью
-      const captionSelectors = [
-        '[data-testid="media-caption-input-container"] div[contenteditable="true"]',
-        'div[contenteditable="true"][data-tab="10"]',
-        'div[contenteditable="true"][role="textbox"]',
-        'div.copyable-text[contenteditable="true"]'
-      ];
-
-      let captionBox = null;
-      for (const selector of captionSelectors) {
-        try {
-          captionBox = await this.page.waitForSelector(selector, { timeout: 3000 });
-          console.log(`✅ Найдено поле подписи с селектором: ${selector}`);
-          break;
-        } catch (e) {
-          console.log(`⚠️  Селектор подписи ${selector} не найден, пробуем следующий...`);
-        }
-      }
-
-      if (captionBox) {
-        // Кликаем на поле подписи
-        await captionBox.click();
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Используем type() для эмуляции реального набора текста
-        await captionBox.type(message, { delay: 50 });
-
-        console.log('📝 Текст подписи введен');
-
-        // Даем время на обработку ввода
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      } else {
-        console.warn('⚠️  Поле для подписи не найдено, файл будет отправлен без текста');
-      }
-
-      // Даем время на рендеринг превью (увеличиваем до 5 секунд)
-      console.log('⏳ Ожидание полной загрузки превью файла...');
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      // Пробуем найти кнопку отправки через JavaScript
-      console.log('🔍 Ищем кнопку отправки через все доступные методы...');
-
-      // Используем более надежный способ - через evaluate с прямым кликом
-      const sendClicked = await this.page.evaluate(() => {
-        // Ищем все кнопки на странице
-        const buttons = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"]'));
-
-        // Ищем кнопку с иконкой отправки или текстом
-        const sendBtn = buttons.find(btn => {
-          const ariaLabel = btn.getAttribute('aria-label') || '';
-          const innerHTML = btn.innerHTML || '';
-          const title = btn.getAttribute('title') || '';
-          const dataIcon = btn.querySelector('[data-icon="send"]');
-
-          // Проверяем на наличие "send", "отправить", или иконки send
-          return ariaLabel.toLowerCase().includes('send') ||
-                 ariaLabel.toLowerCase().includes('отправить') ||
-                 title.toLowerCase().includes('send') ||
-                 title.toLowerCase().includes('отправить') ||
-                 dataIcon !== null;
-        });
-
-        if (sendBtn) {
-          // Кликаем напрямую из контекста страницы
-          sendBtn.click();
-          return true;
-        }
-        return false;
-      });
-
-      if (sendClicked) {
-        console.log('✅ Кнопка отправки найдена и нажата через JavaScript');
-
-        // Ждем немного после клика
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        // Дополнительно нажимаем Enter для гарантии отправки
-        await this.page.keyboard.press('Enter');
-        console.log('✅ Дополнительно нажат Enter для подтверждения отправки');
-
-        // Ждем закрытия превью (признак успешной отправки)
-        console.log('⏳ Ожидание закрытия превью...');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      } else {
-        console.warn('⚠️  Кнопка отправки не найдена через JavaScript, пробуем Keyboard.press');
-
-        // Пробуем отправить через Enter
-        try {
-          await this.page.keyboard.press('Enter');
-          console.log('✅ Нажат Enter для отправки');
-
-          // Ждем немного и проверяем, если не отправилось, пробуем еще раз
-          await new Promise(resolve => setTimeout(resolve, 1000));
-
-          // Проверяем, закрылось ли превью (признак успешной отправки)
-          const previewClosed = await this.page.evaluate(() => {
-            // Если превью закрылось, значит отправка успешна
-            return !document.querySelector('div[data-animate-modal-popup="true"]');
-          });
-
-          if (!previewClosed) {
-            console.log('⚠️  Превью не закрылось, пробуем еще раз нажать Enter...');
-            await this.page.keyboard.press('Enter');
-            console.log('✅ Повторное нажатие Enter');
-
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            // Последняя попытка - кликнуть в правый нижний угол где обычно кнопка отправки
-            const viewportSize = await this.page.viewport();
-            if (viewportSize) {
-              // Кликаем в правый нижний угол превью (примерное расположение кнопки отправки)
-              await this.page.mouse.click(viewportSize.width - 100, viewportSize.height - 100);
-              console.log('✅ Клик по предполагаемому расположению кнопки отправки');
-            }
-          }
-        } catch (error) {
-          console.error('⚠️  Ошибка при нажатии Enter:', error.message);
-          throw new Error('Не удалось отправить сообщение');
-        }
-      }
-
-      console.log('✅ Сообщение с файлом отправлено!');
-
-      return {
-        success: true,
-        message: 'Сообщение с файлом отправлено'
-      };
-
+      return { success: true, message: 'Сообщение отправлено' };
     } catch (error) {
-      console.error('❌ Ошибка отправки с файлом:', error.message);
+      console.error('❌ Ошибка отправки сообщения:', error.message);
       throw error;
     }
   }
 
-  /**
-   * Получение URL для просмотра WhatsApp Web в браузере
-   */
-  async getBrowserUrl() {
-    if (!this.browser) {
-      return null;
-    }
-
-    const pages = await this.browser.pages();
-    if (pages.length > 0) {
-      return pages[0].url();
-    }
-
-    return null;
-  }
-
-  /**
-   * Получить скриншот текущей страницы WhatsApp
-   */
-  async getScreenshot() {
-    if (!this.page) {
-      throw new Error('WhatsApp Web не инициализирован');
+  async sendMessageWithFile(phone, message, filePath) {
+    if (!this.isReady || !this.page) {
+      throw new Error('WhatsApp Web не готов');
     }
 
     try {
-      // Проверяем, что страница не закрыта
-      if (this.page.isClosed()) {
-        throw new Error('Страница WhatsApp закрыта');
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`Файл не найден: ${filePath}`);
       }
 
-      return await this.page.screenshot({
-        type: 'png',
-        fullPage: false
+      let cleanPhone = phone.replace(/[^0-9]/g, '');
+      if (cleanPhone.startsWith('8')) {
+        cleanPhone = '7' + cleanPhone.substring(1);
+      }
+      if (!cleanPhone.startsWith('7')) {
+        cleanPhone = '7' + cleanPhone;
+      }
+
+      console.log(`📤 Отправка файла на ${cleanPhone}...`);
+
+      await this.page.goto(`https://web.whatsapp.com/send?phone=${cleanPhone}`, {
+        waitUntil: 'load',
+        timeout: 60000
       });
+
+      // Ждем исчезновения экрана загрузки и появления чата
+      console.log('⏳ Ожидание загрузки чата...');
+
+      // Даем время на начальную загрузку
+      await new Promise(resolve => setTimeout(resolve, 5000));
+
+      // Ждем загрузки чата с несколькими возможными селекторами
+      const chatLoaded = await Promise.race([
+        this.page.waitForSelector('[data-testid="conversation-compose-box-input"]', { timeout: 25000 }).catch(() => null),
+        this.page.waitForSelector('footer [contenteditable="true"]', { timeout: 25000 }).catch(() => null),
+        this.page.waitForSelector('[data-testid="clip"]', { timeout: 25000 }).catch(() => null),
+        this.page.waitForSelector('div[contenteditable="true"][data-tab="10"]', { timeout: 25000 }).catch(() => null),
+      ]);
+
+      if (!chatLoaded) {
+        console.error('❌ Не удалось дождаться загрузки чата');
+        await this.page.screenshot({ path: '/tmp/whatsapp_error.png' });
+        throw new Error('Чат не загрузился');
+      }
+
+      console.log('✅ Чат загружен');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Находим кнопку прикрепления с несколькими вариантами
+      let attachButton = await this.page.$('[data-testid="clip"]');
+      if (!attachButton) {
+        attachButton = await this.page.$('[data-icon="clip"]');
+      }
+      if (!attachButton) {
+        attachButton = await this.page.$('span[data-icon="plus"]');
+      }
+      if (!attachButton) {
+        attachButton = await this.page.$('[aria-label*="Прикрепить"]');
+      }
+      if (!attachButton) {
+        attachButton = await this.page.$('button[aria-label*="Attach"]');
+      }
+      if (!attachButton) {
+        // Пробуем найти любую кнопку с иконкой плюс около поля ввода
+        const buttons = await this.page.$$('footer button, footer span[role="button"]');
+        for (const btn of buttons) {
+          const html = await this.page.evaluate(el => el.innerHTML, btn);
+          if (html.includes('plus') || html.includes('+')) {
+            attachButton = btn;
+            break;
+          }
+        }
+      }
+
+      if (!attachButton) {
+        console.error('❌ Кнопка прикрепления не найдена');
+        await this.page.screenshot({ path: '/tmp/whatsapp_no_clip.png' });
+        throw new Error('Кнопка прикрепления не найдена');
+      }
+
+      console.log('📎 Нажимаю кнопку прикрепления...');
+      await attachButton.click();
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      // Находим input для файла
+      const fileInput = await this.page.$('input[type="file"][accept*="*"]');
+      if (!fileInput) {
+        await this.page.screenshot({ path: '/tmp/whatsapp_no_input.png' });
+        throw new Error('Input для файла не найден');
+      }
+
+      console.log(`📤 Загружаю файл: ${path.basename(filePath)}...`);
+      await fileInput.uploadFile(filePath);
+      console.log(`✅ Файл загружен: ${path.basename(filePath)}`);
+
+      // Ждем появления модального окна предпросмотра файла
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Проверяем появление модального окна
+      const previewVisible = await Promise.race([
+        this.page.waitForSelector('[data-testid="media-viewer"]', { timeout: 10000 }).catch(() => null),
+        this.page.waitForSelector('.media-viewer', { timeout: 10000 }).catch(() => null),
+        this.page.waitForSelector('[role="dialog"]', { timeout: 10000 }).catch(() => null),
+      ]);
+
+      if (!previewVisible) {
+        console.error('⚠️ Модальное окно предпросмотра не появилось, но продолжаем...');
+      } else {
+        console.log('✅ Модальное окно предпросмотра открыто');
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Добавляем текст если есть
+      if (message) {
+        const captionSelectors = [
+          '[data-testid="media-caption-input-container"] [contenteditable="true"]',
+          'div[contenteditable="true"][data-lexical-editor="true"]',
+          'div[contenteditable="true"][data-tab="10"]'
+        ];
+
+        let captionBox = null;
+        for (const selector of captionSelectors) {
+          captionBox = await this.page.$(selector);
+          if (captionBox) break;
+        }
+
+        if (captionBox) {
+          await captionBox.click();
+          await new Promise(resolve => setTimeout(resolve, 300));
+          await this.page.keyboard.type(message);
+          await new Promise(resolve => setTimeout(resolve, 500));
+          console.log('💬 Добавлено сообщение к файлу');
+        }
+      }
+
+      // Отправляем с несколькими вариантами селектора
+      let sendButton = await this.page.$('[data-testid="send"]');
+      if (!sendButton) {
+        sendButton = await this.page.$('span[data-icon="send"]');
+      }
+      if (!sendButton) {
+        sendButton = await this.page.$('[aria-label*="Send"]');
+      }
+      if (!sendButton) {
+        sendButton = await this.page.$('[aria-label*="Отправить"]');
+      }
+      if (!sendButton) {
+        // Ищем круглую кнопку отправки в модальном окне
+        const buttons = await this.page.$$('button[aria-label], span[role="button"]');
+        for (const btn of buttons) {
+          const ariaLabel = await this.page.evaluate(el => el.getAttribute('aria-label'), btn);
+          if (ariaLabel && (ariaLabel.includes('Send') || ariaLabel.includes('Отправить') || ariaLabel.includes('send'))) {
+            sendButton = btn;
+            break;
+          }
+        }
+      }
+      if (!sendButton) {
+        // Последняя попытка - ищем любую кнопку с SVG внутри в правом нижнем углу модального окна
+        const buttons = await this.page.$$('[role="dialog"] button, [data-testid="media-viewer"] button');
+        for (const btn of buttons) {
+          const html = await this.page.evaluate(el => el.outerHTML, btn);
+          if (html.includes('svg') || html.includes('Send')) {
+            sendButton = btn;
+            break;
+          }
+        }
+      }
+
+      // Если все еще не нашли - пробуем JavaScript evaluation для прямого поиска и клика
+      if (!sendButton) {
+        console.log('⚠️ Стандартные селекторы не сработали, пробую JavaScript evaluation...');
+        const clicked = await this.page.evaluate(() => {
+          // Ищем все кнопки на странице
+          const allButtons = Array.from(document.querySelectorAll('button, span[role="button"]'));
+
+          // Фильтруем по видимости и позиции (правый нижний угол)
+          for (const btn of allButtons) {
+            const rect = btn.getBoundingClientRect();
+            const ariaLabel = btn.getAttribute('aria-label') || '';
+            const innerHTML = btn.innerHTML || '';
+
+            // Проверяем: кнопка видима, находится в правой части экрана, содержит send-подобные признаки
+            if (rect.width > 0 && rect.height > 0 &&
+                rect.right > window.innerWidth * 0.5 &&
+                rect.bottom > window.innerHeight * 0.3 &&
+                (ariaLabel.toLowerCase().includes('send') ||
+                 ariaLabel.toLowerCase().includes('отправить') ||
+                 innerHTML.includes('send') ||
+                 innerHTML.includes('<svg'))) {
+              btn.click();
+              return true;
+            }
+          }
+          return false;
+        });
+
+        if (clicked) {
+          console.log('✅ Файл отправлен через JavaScript evaluation!');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          return { success: true, message: 'Файл отправлен' };
+        }
+      }
+
+      if (sendButton) {
+        console.log('📤 Отправляю файл...');
+        await sendButton.click();
+        console.log('✅ Файл отправлен!');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } else {
+        await this.page.screenshot({ path: '/tmp/whatsapp_no_send.png' });
+        throw new Error('Кнопка отправки не найдена');
+      }
+
+      return { success: true, message: 'Файл отправлен' };
     } catch (error) {
-      console.error('Ошибка получения скриншота:', error.message);
-      throw new Error(`Не удалось получить скриншот: ${error.message}`);
+      console.error('❌ Ошибка отправки файла:', error.message);
+      // Сохраняем скриншот для отладки
+      try {
+        await this.page.screenshot({ path: '/tmp/whatsapp_send_error.png' });
+        console.log('📸 Скриншот ошибки сохранен: /tmp/whatsapp_send_error.png');
+      } catch (screenshotError) {
+        console.error('Не удалось сохранить скриншот:', screenshotError.message);
+      }
+      throw error;
     }
   }
 
-  /**
-   * Получить отладочный WebSocket endpoint
-   */
-  getDebuggerUrl() {
-    return 'http://localhost:9222';
+  async getScreenshot() {
+    if (!this.page) {
+      throw new Error('Страница не инициализирована');
+    }
+    return await this.page.screenshot({ fullPage: false });
   }
 
-  /**
-   * Проверка статуса
-   */
+  getQRCode() {
+    return null; // QR в браузере
+  }
+
   getStatus() {
     return {
       isReady: this.isReady,
-      browserActive: this.browser !== null,
+      browserActive: this.browser !== null && this.page !== null,
       sessionExists: fs.existsSync(this.sessionDir)
     };
   }
 
-  /**
-   * Закрытие браузера
-   */
   async close() {
     if (this.browser) {
       await this.browser.close();
       this.browser = null;
       this.page = null;
       this.isReady = false;
-      console.log('🔒 Браузер WhatsApp закрыт');
+      console.log('🔒 WhatsApp закрыт');
     }
   }
 
-  /**
-   * Перезапуск (если что-то пошло не так)
-   */
   async restart() {
-    try {
-      console.log('🔄 Перезапуск WhatsApp Manager...');
-      await this.close();
-      // Даём время на полное закрытие
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      await this.initialize();
-      console.log('✅ WhatsApp Manager успешно перезапущен');
-    } catch (error) {
-      console.error('❌ Ошибка перезапуска WhatsApp Manager:', error.message);
-      throw error;
-    }
+    console.log('🔄 Перезапуск WhatsApp...');
+    await this.close();
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    await this.initialize();
   }
 }
 
-// Создаем единственный экземпляр
 const whatsappManager = new WhatsAppManager();
-
 export default whatsappManager;
