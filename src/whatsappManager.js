@@ -380,29 +380,6 @@ class WhatsAppManager {
 
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      // Добавляем текст если есть
-      if (message) {
-        const captionSelectors = [
-          '[data-testid="media-caption-input-container"] [contenteditable="true"]',
-          'div[contenteditable="true"][data-lexical-editor="true"]',
-          'div[contenteditable="true"][data-tab="10"]'
-        ];
-
-        let captionBox = null;
-        for (const selector of captionSelectors) {
-          captionBox = await this.page.$(selector);
-          if (captionBox) break;
-        }
-
-        if (captionBox) {
-          await captionBox.click();
-          await new Promise(resolve => setTimeout(resolve, 300));
-          await this.page.keyboard.type(message);
-          await new Promise(resolve => setTimeout(resolve, 500));
-          console.log('💬 Добавлено сообщение к файлу');
-        }
-      }
-
       // Ищем кнопку отправки ВНУТРИ модального окна
       let sendButton = null;
 
@@ -517,6 +494,92 @@ class WhatsAppManager {
       } else {
         await this.page.screenshot({ path: '/tmp/whatsapp_no_send.png' });
         throw new Error('Кнопка отправки не найдена');
+      }
+
+      // Отправляем текст отдельным сообщением, если он был передан
+      if (message) {
+        console.log('💬 Отправка текста отдельным сообщением...');
+        try {
+          // Ждем появления поля ввода сообщения
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
+          const inputSelectors = [
+            '[data-testid="conversation-compose-box-input"]',
+            'footer [contenteditable="true"]',
+            'div[contenteditable="true"][data-tab="10"]'
+          ];
+
+          let inputBox = null;
+          for (const selector of inputSelectors) {
+            inputBox = await this.page.$(selector);
+            if (inputBox) {
+              console.log(`  Найдено поле ввода: ${selector}`);
+              break;
+            }
+          }
+
+          if (inputBox) {
+            // Кликаем на поле ввода и вводим текст
+            await inputBox.click();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await this.page.keyboard.type(message);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            // Нажимаем кнопку отправки - пробуем разные варианты
+            const sendButtonSelectors = [
+              '[data-testid="send"]',
+              'span[data-icon="send"]',
+              'button[aria-label*="Send"]',
+              'button[aria-label*="Отправить"]',
+              'span[data-testid="send"]'
+            ];
+
+            let sendButton = null;
+            for (const selector of sendButtonSelectors) {
+              sendButton = await this.page.$(selector);
+              if (sendButton) {
+                console.log(`  Найдена кнопка отправки: ${selector}`);
+                break;
+              }
+            }
+
+            if (!sendButton) {
+              // Последняя попытка - ищем через evaluate
+              const clicked = await this.page.evaluate(() => {
+                const buttons = Array.from(document.querySelectorAll('button, span[role="button"]'));
+                for (const btn of buttons) {
+                  const ariaLabel = btn.getAttribute('aria-label') || '';
+                  const testId = btn.getAttribute('data-testid') || '';
+                  const innerHTML = btn.innerHTML || '';
+
+                  if (ariaLabel.toLowerCase().includes('send') ||
+                      ariaLabel.toLowerCase().includes('отправить') ||
+                      testId === 'send' ||
+                      innerHTML.includes('data-icon="send"')) {
+                    btn.click();
+                    return true;
+                  }
+                }
+                return false;
+              });
+
+              if (clicked) {
+                console.log('✅ Текст отправлен отдельным сообщением (через evaluate)');
+              } else {
+                console.error('⚠️ Кнопка отправки текста не найдена');
+              }
+            } else {
+              await sendButton.click();
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              console.log('✅ Текст отправлен отдельным сообщением');
+            }
+          } else {
+            console.error('⚠️ Поле ввода текста не найдено');
+          }
+        } catch (error) {
+          console.error('⚠️ Ошибка отправки текстового сообщения:', error.message);
+          // Не бросаем ошибку, так как файл уже отправлен успешно
+        }
       }
 
       return { success: true, message: 'Файл отправлен' };
