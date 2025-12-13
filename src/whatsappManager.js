@@ -137,33 +137,84 @@ class WhatsAppManager {
 
       console.log(`📤 Отправка файла на ${cleanPhone}...`);
 
-      await this.page.goto(`https://web.whatsapp.com/send?phone=${cleanPhone}`, {
-        waitUntil: 'load',
-        timeout: 60000
-      });
+      // Проверяем, загружен ли уже интерфейс WhatsApp
+      const currentUrl = this.page.url();
 
-      // Ждем исчезновения экрана загрузки и появления чата
+      if (!currentUrl.includes('web.whatsapp.com')) {
+        console.log('⏳ Открываю WhatsApp Web...');
+        await this.page.goto(`https://web.whatsapp.com/send?phone=${cleanPhone}`, {
+          waitUntil: 'load',
+          timeout: 60000
+        });
+      } else {
+        console.log('✅ WhatsApp Web уже открыт, открываю чат...');
+
+        // Открываем чат через внутреннюю навигацию (без перезагрузки страницы)
+        await this.page.evaluate((phone) => {
+          window.location.href = `https://web.whatsapp.com/send?phone=${phone}`;
+        }, cleanPhone);
+
+        // Даем время на начало навигации
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Ожидаем исчезновения спиннера загрузки (если он есть)
+        console.log('⏳ Ожидание загрузки интерфейса...');
+        try {
+          await this.page.waitForSelector('div[data-testid="default-user"]', { timeout: 3000 });
+          console.log('  Загрузка интерфейса...');
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        } catch (e) {
+          // Спиннер может не появиться, продолжаем
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+
+      // Ждем появления чата
       console.log('⏳ Ожидание загрузки чата...');
 
-      // Даем время на начальную загрузку
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      // Сначала ждем исчезновения модального окна "Начало чата", если оно есть
+      try {
+        const chatStartModal = await this.page.waitForFunction(
+          () => {
+            const text = document.body.textContent || '';
+            return text.includes('Начало чата');
+          },
+          { timeout: 5000 }
+        ).catch(() => null);
 
-      // Ждем загрузки чата с несколькими возможными селекторами
+        if (chatStartModal) {
+          console.log('  Ожидание окончания загрузки чата...');
+          // Ждем исчезновения текста "Начало чата"
+          await this.page.waitForFunction(
+            () => {
+              const text = document.body.textContent || '';
+              return !text.includes('Начало чата');
+            },
+            { timeout: 40000 }
+          );
+          console.log('  Модальное окно загрузки исчезло');
+        }
+      } catch (e) {
+        // Модальное окно может не появиться, продолжаем
+        console.log('  Модального окна загрузки нет, продолжаем...');
+      }
+
+      // Теперь ждем появления элементов чата
       const chatLoaded = await Promise.race([
-        this.page.waitForSelector('[data-testid="conversation-compose-box-input"]', { timeout: 25000 }).catch(() => null),
-        this.page.waitForSelector('footer [contenteditable="true"]', { timeout: 25000 }).catch(() => null),
-        this.page.waitForSelector('[data-testid="clip"]', { timeout: 25000 }).catch(() => null),
-        this.page.waitForSelector('div[contenteditable="true"][data-tab="10"]', { timeout: 25000 }).catch(() => null),
+        this.page.waitForSelector('[data-testid="conversation-compose-box-input"]', { timeout: 30000 }).catch(() => null),
+        this.page.waitForSelector('footer [contenteditable="true"]', { timeout: 30000 }).catch(() => null),
+        this.page.waitForSelector('[data-testid="clip"]', { timeout: 30000 }).catch(() => null),
+        this.page.waitForSelector('div[contenteditable="true"][data-tab="10"]', { timeout: 30000 }).catch(() => null),
       ]);
 
       if (!chatLoaded) {
         console.error('❌ Не удалось дождаться загрузки чата');
-        await this.page.screenshot({ path: '/tmp/whatsapp_error.png' });
+        await this.page.screenshot({ path: '/tmp/whatsapp_chat_error.png' });
         throw new Error('Чат не загрузился');
       }
 
       console.log('✅ Чат загружен');
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       // Находим кнопку прикрепления с несколькими вариантами
       let attachButton = await this.page.$('[data-testid="clip"]');
@@ -197,35 +248,134 @@ class WhatsAppManager {
         throw new Error('Кнопка прикрепления не найдена');
       }
 
+      // Проверяем что файл существует ПЕРЕД началом
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`Файл не существует: ${filePath}`);
+      }
+      console.log(`✅ Файл для отправки: ${path.basename(filePath)} (${fs.statSync(filePath).size} байт)`);
+
       console.log('📎 Нажимаю кнопку прикрепления...');
       await attachButton.click();
+
+      // Ждем появления меню с опциями
+      console.log('⏳ Ожидание меню прикрепления...');
       await new Promise(resolve => setTimeout(resolve, 1500));
 
-      // Находим input для файла
-      const fileInput = await this.page.$('input[type="file"][accept*="*"]');
+      // ВАЖНО: Нужно кликнуть на пункт меню "Документ"
+      console.log('📄 Ищу пункт меню "Документ"...');
+
+      // Используем evaluate для поиска элемента по тексту
+      const documentButton = await this.page.evaluate(() => {
+        // Ищем все элементы, которые содержат текст "Документ"
+        const elements = Array.from(document.querySelectorAll('span, div, li'));
+        const docElement = elements.find(el => el.textContent.trim() === 'Документ');
+
+        if (docElement) {
+          // Находим кликабельный родительский элемент (обычно это li или button)
+          let clickable = docElement;
+          while (clickable && clickable.tagName !== 'LI' && clickable.tagName !== 'BUTTON') {
+            clickable = clickable.parentElement;
+          }
+
+          if (clickable) {
+            clickable.click();
+            return true;
+          }
+        }
+
+        return false;
+      });
+
+      if (!documentButton) {
+        await this.page.screenshot({ path: '/tmp/whatsapp_no_doc_button.png' });
+        console.error('❌ Пункт меню "Документ" не найден');
+        throw new Error('Пункт меню "Документ" не найден');
+      }
+
+      console.log('✅ Кликнул на пункт "Документ"');
+
+      // Даем время на активацию input для документов
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Теперь ищем input для документов
+      console.log('🔍 Поиск input для загрузки документов...');
+      const fileInputs = await this.page.$$('input[type="file"]');
+      console.log(`📋 Найдено ${fileInputs.length} input элементов для файлов`);
+
+      // Выбираем последний добавленный input (для документов)
+      let fileInput = null;
+      for (const input of fileInputs) {
+        const accept = await this.page.evaluate(el => el.getAttribute('accept'), input);
+        console.log(`  - Input с accept="${accept}"`);
+        // Ищем input который принимает любые файлы (это для документов)
+        if (!accept || accept === '*' || accept.includes('application/')) {
+          fileInput = input;
+          console.log(`  ✓ Выбран этот input для документов`);
+        }
+      }
+
+      if (!fileInput && fileInputs.length > 0) {
+        // Берем последний input (обычно это документный)
+        fileInput = fileInputs[fileInputs.length - 1];
+        console.log('  ⚠️ Использую последний input');
+      }
+
       if (!fileInput) {
         await this.page.screenshot({ path: '/tmp/whatsapp_no_input.png' });
+        console.error('❌ Input для файла не найден');
         throw new Error('Input для файла не найден');
       }
 
+      // ЭМУЛЯЦИЯ ОТКРЫТИЯ ФАЙЛОВОГО ДИАЛОГА: сначала фокусируемся на input
+      console.log('🎯 Фокусировка на input...');
+      await this.page.evaluate((el) => {
+        el.style.display = 'block';
+        el.style.visibility = 'visible';
+        el.focus();
+      }, fileInput);
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       console.log(`📤 Загружаю файл: ${path.basename(filePath)}...`);
+
+      // Загружаем файл
       await fileInput.uploadFile(filePath);
-      console.log(`✅ Файл загружен: ${path.basename(filePath)}`);
+      console.log(`✅ Файл загружен в input`);
 
-      // Ждем появления модального окна предпросмотра файла
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Триггерим все необходимые события для полной эмуляции
+      console.log('🔄 Триггер событий input, change, blur...');
+      await this.page.evaluate((el) => {
+        // Триггерим события как при реальном выборе файла
+        const events = ['input', 'change', 'blur'];
+        events.forEach(eventType => {
+          const event = new Event(eventType, { bubbles: true, cancelable: true });
+          el.dispatchEvent(event);
+        });
+      }, fileInput);
 
-      // Проверяем появление модального окна
+      // Даем время WhatsApp обработать файл
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Проверяем появление модального окна предпросмотра - используем более надежную проверку
+      console.log('⏳ Ожидание модального окна предпросмотра...');
       const previewVisible = await Promise.race([
-        this.page.waitForSelector('[data-testid="media-viewer"]', { timeout: 10000 }).catch(() => null),
-        this.page.waitForSelector('.media-viewer', { timeout: 10000 }).catch(() => null),
-        this.page.waitForSelector('[role="dialog"]', { timeout: 10000 }).catch(() => null),
+        this.page.waitForSelector('[data-testid="media-viewer"]', { timeout: 15000 }).catch(() => null),
+        this.page.waitForSelector('.media-viewer', { timeout: 15000 }).catch(() => null),
+        this.page.waitForSelector('[role="dialog"]', { timeout: 15000 }).catch(() => null),
+        this.page.waitForSelector('div[data-animate-modal-popup="true"]', { timeout: 15000 }).catch(() => null),
       ]);
 
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
       if (!previewVisible) {
-        console.error('⚠️ Модальное окно предпросмотра не появилось, но продолжаем...');
+        console.error('⚠️ Модальное окно предпросмотра не появилось!');
+        await this.page.screenshot({ path: '/tmp/whatsapp_no_preview.png' });
+        // Проверим что на странице вообще есть
+        const pageContent = await this.page.evaluate(() => document.body.innerText);
+        console.log('Текст на странице:', pageContent.substring(0, 200));
       } else {
         console.log('✅ Модальное окно предпросмотра открыто');
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -253,8 +403,28 @@ class WhatsAppManager {
         }
       }
 
-      // Отправляем с несколькими вариантами селектора
-      let sendButton = await this.page.$('[data-testid="send"]');
+      // Ищем кнопку отправки ВНУТРИ модального окна
+      let sendButton = null;
+
+      // Попробуем найти кнопку внутри модального окна
+      const sendButtonSelectors = [
+        '[role="dialog"] [data-testid="send"]',
+        '[role="dialog"] span[data-icon="send"]',
+        'div[data-animate-modal-popup] [data-testid="send"]',
+        'div[data-animate-modal-popup] span[data-icon="send"]',
+        // На случай если модального окна нет (старая логика)
+        '[data-testid="send"]',
+        'span[data-icon="send"]'
+      ];
+
+      for (const selector of sendButtonSelectors) {
+        sendButton = await this.page.$(selector);
+        if (sendButton) {
+          console.log(`✅ Найдена кнопка отправки: ${selector}`);
+          break;
+        }
+      }
+
       if (!sendButton) {
         sendButton = await this.page.$('span[data-icon="send"]');
       }
@@ -323,9 +493,26 @@ class WhatsAppManager {
       }
 
       if (sendButton) {
-        console.log('📤 Отправляю файл...');
+        console.log('📤 Нажимаю кнопку отправки...');
         await sendButton.click();
-        console.log('✅ Файл отправлен!');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Ждем исчезновения модального окна - это означает что файл отправился
+        console.log('⏳ Ожидание исчезновения модального окна (файл отправляется)...');
+        try {
+          await this.page.waitForFunction(() => {
+            const modal = document.querySelector('[role="dialog"]') ||
+                         document.querySelector('[data-testid="media-viewer"]') ||
+                         document.querySelector('.media-viewer');
+            return !modal;
+          }, { timeout: 10000 });
+          console.log('✅ Модальное окно закрылось - файл отправлен!');
+        } catch (e) {
+          console.log('⚠️  Модальное окно не исчезло за 10 секунд, но возможно файл все равно отправился');
+          await this.page.screenshot({ path: '/tmp/whatsapp_after_send.png' });
+        }
+
+        // Дополнительная пауза для завершения отправки
         await new Promise(resolve => setTimeout(resolve, 2000));
       } else {
         await this.page.screenshot({ path: '/tmp/whatsapp_no_send.png' });

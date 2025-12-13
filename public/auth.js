@@ -109,7 +109,9 @@ async function logout() {
     window.location.href = '/login.html';
 }
 
-// Проверяем авторизацию при загрузке страницы (кроме страницы логина)
-if (window.location.pathname !== '/login.html' && window.location.pathname !== '/login') {
+// Проверяем авторизацию при загрузке страницы (кроме страницы логина и публичного каталога)
+if (window.location.pathname !== '/login.html' &&
+    window.location.pathname !== '/login' &&
+    window.location.pathname !== '/catalog') {
     checkAuth();
 }

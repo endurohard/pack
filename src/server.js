@@ -35,8 +35,17 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+// Создаем папку для скриншотов
+const screenshotsDir = path.join(__dirname, '../screenshots');
+if (!fs.existsSync(screenshotsDir)) {
+  fs.mkdirSync(screenshotsDir, { recursive: true });
+}
+
 // Раздаем статические файлы из папки uploads
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// Раздаем скриншоты (без авторизации для удобства загрузки)
+app.use('/screenshots', express.static(path.join(__dirname, '../screenshots')));
 
 // Настройка multer для загрузки фото
 const storage = multer.diskStorage({
@@ -66,6 +75,36 @@ const upload = multer({
       return cb(null, true);
     } else {
       cb(new Error('Разрешены только изображения (JPEG, PNG, GIF, WebP)'));
+    }
+  }
+});
+
+// Настройка multer для загрузки скриншотов
+const screenshotStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, screenshotsDir);
+  },
+  filename: function (req, file, cb) {
+    // Сохраняем оригинальное имя файла
+    const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    cb(null, originalName);
+  }
+});
+
+const uploadScreenshot = multer({
+  storage: screenshotStorage,
+  limits: {
+    fileSize: 10 * 1024 * 1024 // Максимум 10MB для скриншотов
+  },
+  fileFilter: function (req, file, cb) {
+    const allowedTypes = /jpeg|jpg|png|gif|webp|bmp/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Разрешены только изображения'));
     }
   }
 });
@@ -572,14 +611,6 @@ app.put('/api/invoices/:id/payment', async (req, res) => {
           }
         }
 
-        // Генерируем имя файла
-        const clientNameClean = sanitizeFilename(invoice.client);
-        const dateStr = new Date().toISOString().split('T')[0];
-        const filename = `Счет_${newInvoiceNumber}_${clientNameClean}_${dateStr}.pdf`;
-
-        // Генерируем PDF
-        await invoiceService.createInvoice(invoiceData, filename);
-
         // Берем дату следующей отправки оригинального счета (если есть) или дату создания
         const baseDate = invoice.nextSendDate ? new Date(invoice.nextSendDate) : new Date(invoice.createdAt);
 
@@ -587,8 +618,16 @@ app.put('/api/invoices/:id/payment', async (req, res) => {
         const nextSendDate = new Date(baseDate);
         nextSendDate.setMonth(nextSendDate.getMonth() + 1);
 
-        // Дата создания нового счета - текущая дата
-        const nextMonthDate = new Date();
+        // ✅ ИСПРАВЛЕНО: Дата создания нового счета = дата следующей отправки (следующий месяц)
+        const nextMonthDate = new Date(nextSendDate);
+
+        // Генерируем имя файла с датой следующего месяца
+        const clientNameClean = sanitizeFilename(invoice.client);
+        const dateStr = nextMonthDate.toISOString().split('T')[0];
+        const filename = `Счет_${newInvoiceNumber}_${clientNameClean}_${dateStr}.pdf`;
+
+        // Генерируем PDF
+        await invoiceService.createInvoice(invoiceData, filename);
 
         // Сохраняем в базу данных с включенной авторассылкой
         const newInvoice = db.addInvoice({
@@ -1239,12 +1278,26 @@ app.post('/api/whatsapp/restart', async (req, res) => {
   }
 });
 
+// Получить QR-код для авторизации
+app.get('/api/whatsapp/qr', async (req, res) => {
+  try {
+    const qr = whatsappManager.getQRCode();
+    const status = whatsappManager.getStatus();
+
+    res.json({
+      qr: qr,
+      status: status
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Получить скриншот WhatsApp Web
 app.get('/api/whatsapp/screenshot', async (req, res) => {
   try {
     const screenshot = await whatsappManager.getScreenshot();
-    res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.set('Content-Type', 'image/png');
     res.send(screenshot);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1546,6 +1599,84 @@ app.get('/catalog', (req, res) => {
 // Розничная продажа (с авторизацией)
 app.get('/retail', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/retail.html'));
+});
+
+// ==================== ЗАГРУЗКА СКРИНШОТОВ ====================
+// Этот endpoint НЕ требует авторизации для удобства
+
+// POST endpoint для загрузки скриншотов
+app.post('/api/upload-screenshot', uploadScreenshot.single('screenshot'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Файл не загружен' });
+    }
+
+    console.log(`📸 Скриншот загружен: ${req.file.filename}`);
+
+    res.json({
+      success: true,
+      filename: req.file.filename,
+      path: `/screenshots/${req.file.filename}`,
+      url: `http://176.98.155.17:10801/screenshots/${req.file.filename}`
+    });
+  } catch (error) {
+    console.error('Ошибка загрузки скриншота:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET endpoint для просмотра всех скриншотов
+app.get('/api/screenshots', (req, res) => {
+  try {
+    const files = fs.readdirSync(screenshotsDir)
+      .filter(f => /\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(f))
+      .map(f => {
+        const stats = fs.statSync(path.join(screenshotsDir, f));
+        return {
+          filename: f,
+          url: `/screenshots/${f}`,
+          size: stats.size,
+          created: stats.birthtime
+        };
+      })
+      .sort((a, b) => b.created - a.created); // Новые первыми
+
+    res.json({ screenshots: files });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Страница для просмотра скриншотов
+app.get('/screenshots-viewer', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/screenshots-viewer.html'));
+});
+
+// Страница скачивания инструментов
+app.get('/download-tools', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/download-tools.html'));
+});
+
+// Endpoint для скачивания файлов
+app.get('/api/download/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const allowedFiles = [
+    'Upload-Screenshot.bat',
+    'upload-screenshot.ps1',
+    'SCREENSHOT_UPLOAD_GUIDE.md'
+  ];
+
+  if (!allowedFiles.includes(filename)) {
+    return res.status(404).json({ error: 'Файл не найден' });
+  }
+
+  const filePath = path.join(__dirname, '..', filename);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Файл не найден на сервере' });
+  }
+
+  res.download(filePath, filename);
 });
 
 // Запуск сервера

@@ -231,29 +231,50 @@
             }
         }
 
-        // Обновление скриншота
+        // Обновление скриншота/QR-кода
         async function refreshScreenshot() {
             const container = document.getElementById('screenshotContainer');
 
             try {
-                // Создаем новый элемент изображения
-                const img = document.createElement('img');
-                img.className = 'screenshot-img';
-                img.src = '/api/whatsapp/screenshot?' + Date.now(); // Добавляем timestamp для обхода кэша
+                // Проверяем статус
+                const statusResponse = await fetch('/api/whatsapp/status');
+                const status = await statusResponse.json();
 
-                img.onload = function() {
-                    container.innerHTML = '';
-                    container.appendChild(img);
-                };
-
-                img.onerror = function() {
+                if (status.isReady) {
+                    // WhatsApp готов к работе - показываем скриншот
                     container.innerHTML = `
-                        <div class="loading">
-                            <p style="color: #ff4757;">❌ Ошибка загрузки снимка экрана</p>
-                            <p style="color: #666; font-size: 14px; margin-top: 10px;">WhatsApp Web может быть не инициализирован</p>
+                        <div style="width: 100%; height: 100%; display: flex; flex-direction: column;">
+                            <div style="background: #d4edda; color: #155724; padding: 15px; text-align: center; border-radius: 8px 8px 0 0;">
+                                ✅ WhatsApp готов к работе!
+                            </div>
+                            <img src="/api/whatsapp/screenshot?t=${Date.now()}"
+                                 class="screenshot-img"
+                                 alt="WhatsApp Web"
+                                 style="flex: 1; width: 100%; object-fit: contain;">
                         </div>
                     `;
-                };
+                } else if (status.browserActive) {
+                    // Браузер активен, но не авторизован - показываем скриншот с QR
+                    container.innerHTML = `
+                        <div style="width: 100%; height: 100%; display: flex; flex-direction: column;">
+                            <div style="background: #fff3cd; color: #856404; padding: 15px; text-align: center; border-radius: 8px 8px 0 0;">
+                                📱 Отсканируйте QR-код на телефоне
+                            </div>
+                            <img src="/api/whatsapp/screenshot?t=${Date.now()}"
+                                 class="screenshot-img"
+                                 alt="WhatsApp QR Code"
+                                 style="flex: 1; width: 100%; object-fit: contain;">
+                        </div>
+                    `;
+                } else {
+                    // Ожидание инициализации
+                    container.innerHTML = `
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            <p>⏳ Инициализация WhatsApp Web...</p>
+                        </div>
+                    `;
+                }
 
             } catch (error) {
                 console.error('Ошибка обновления:', error);
@@ -316,6 +337,7 @@
             stopAutoRefresh();
         });
     </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="/auth.js"></script>
 </body>
 </html>

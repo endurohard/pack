@@ -160,7 +160,7 @@ class AutoSendScheduler {
     const message = messageTemplate.replace(/{номер}/g, invoice.invoiceNumber);
 
     // Ищем PDF файл счета
-    const invoicesDir = path.join(__dirname, '../invoices');
+    const invoicesDir = path.join(__dirname, '../output');
     const files = fs.readdirSync(invoicesDir);
 
     const pdfFile = files.find(f => {

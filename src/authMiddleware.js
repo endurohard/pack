@@ -74,6 +74,9 @@ export function authMiddleware(req, res, next) {
   if (req.path === '/login.html' ||
       req.path === '/login' ||
       req.path === '/catalog' ||  // Публичный каталог
+      req.path === '/screenshots-viewer' ||  // Страница загрузки скриншотов
+      req.path === '/download-tools' ||  // Страница скачивания инструментов
+      req.path.startsWith('/screenshots/') ||  // Статические скриншоты
       req.path.startsWith('/api/') ||
       req.path.endsWith('.html') ||
       req.path.endsWith('.css') ||
