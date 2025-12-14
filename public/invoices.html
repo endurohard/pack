@@ -950,11 +950,14 @@
                     tr.classList.add('invoice-paid');
                 }
 
-                // Обработка частичной оплаты
+                // Обработка частичной оплаты с учетом старого флага paid
                 const paidAmount = invoice.paidAmount || 0;
                 const remainingAmount = invoice.amount - paidAmount;
-                const isFullyPaid = paidAmount >= invoice.amount;
-                const isPartiallyPaid = paidAmount > 0 && paidAmount < invoice.amount;
+                // Счет полностью оплачен, если:
+                // 1. Установлен старый флаг paid: true (для обратной совместимости)
+                // 2. Или paidAmount >= общей суммы (новая система)
+                const isFullyPaid = invoice.paid || (paidAmount >= invoice.amount);
+                const isPartiallyPaid = !invoice.paid && paidAmount > 0 && paidAmount < invoice.amount;
 
                 let statusBadge = '';
                 if (isFullyPaid) {
