@@ -534,8 +534,44 @@
         </div>
     </div>
 
+    <!-- Модальное окно для создания нового товара -->
+    <div id="newProductModal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2>Создание нового товара</h2>
+                <span class="close" onclick="closeNewProductModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p>Товар "<strong id="newProductName"></strong>" не найден на складе.</p>
+                <p>Создать новый товар?</p>
+
+                <form id="newProductForm" style="margin-top: 20px;">
+                    <div class="form-group">
+                        <label>Единица измерения</label>
+                        <input type="text" id="newProductUnit" placeholder="шт, кг, час" value="шт" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Себестоимость (₽)</label>
+                        <input type="number" id="newProductCostPrice" placeholder="0.00" min="0" step="0.01" value="0">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Розничная цена (₽)</label>
+                        <input type="number" id="newProductSellingPrice" placeholder="1000.00" min="0" step="0.01" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-success" onclick="saveNewProduct()">✅ Создать товар</button>
+                <button class="btn btn-secondary" onclick="closeNewProductModal()">Отмена</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let currentPdfUrl = '';
+        let currentInputRow = null; // Для хранения текущего input элемента при создании товара
         let currentFilename = '';
         let currentClientPhone = '';
         let currentInvoiceNumber = '';
@@ -675,7 +711,7 @@
             itemRow.innerHTML = `
                 <div>
                     <label>Наименование</label>
-                    <input type="text" class="item-name" required placeholder="Название услуги (выберите из списка)" list="productsList" oninput="fillItemFromProduct(this)" value="${item.name || ''}">
+                    <input type="text" class="item-name" required placeholder="Название услуги (выберите из списка)" list="productsList" oninput="fillItemFromProduct(this)" onblur="checkProductExists(this)" value="${item.name || ''}">
                 </div>
                 <div>
                     <label>Ед. изм.</label>
@@ -1209,6 +1245,90 @@
                 const row = input.closest('.item-row');
                 row.querySelector('.item-unit').value = product.unit;
                 row.querySelector('.item-price').value = product.sellingPrice;
+            }
+        }
+
+        function checkProductExists(input) {
+            const productName = input.value.trim();
+
+            // Если поле пустое - не проверяем
+            if (!productName) return;
+
+            const product = warehouseProducts.find(p => p.name === productName);
+
+            // Если товар не найден - предлагаем создать
+            if (!product) {
+                currentInputRow = input;
+                openNewProductModal(productName);
+            }
+        }
+
+        function openNewProductModal(productName) {
+            document.getElementById('newProductName').textContent = productName;
+            document.getElementById('newProductModal').classList.add('show');
+        }
+
+        function closeNewProductModal() {
+            document.getElementById('newProductModal').classList.remove('show');
+            document.getElementById('newProductForm').reset();
+            document.getElementById('newProductUnit').value = 'шт';
+            document.getElementById('newProductCostPrice').value = '0';
+            currentInputRow = null;
+        }
+
+        async function saveNewProduct() {
+            const productName = document.getElementById('newProductName').textContent;
+            const unit = document.getElementById('newProductUnit').value.trim();
+            const costPrice = parseFloat(document.getElementById('newProductCostPrice').value) || 0;
+            const sellingPrice = parseFloat(document.getElementById('newProductSellingPrice').value) || 0;
+
+            if (!productName || !unit || sellingPrice <= 0) {
+                alert('Заполните все обязательные поля');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/warehouse/products', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: productName,
+                        type: 'product',
+                        unit: unit,
+                        costPrice: costPrice,
+                        sellingPrice: sellingPrice,
+                        quantity: 0,
+                        category: 'Создано из счета'
+                    })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    const newProduct = result.product;
+                    console.log('[NewProduct] Товар создан:', newProduct);
+
+                    // Добавляем в локальный список товаров
+                    warehouseProducts.push(newProduct);
+
+                    // Обновляем поля в строке счета
+                    if (currentInputRow) {
+                        const row = currentInputRow.closest('.item-row');
+                        row.querySelector('.item-unit').value = unit;
+                        row.querySelector('.item-price').value = sellingPrice;
+                    }
+
+                    // Обновляем datalist
+                    await loadWarehouseProducts();
+
+                    alert(`✅ Товар "${productName}" успешно создан!`);
+                    closeNewProductModal();
+                } else {
+                    const error = await response.json();
+                    alert(`Ошибка создания товара: ${error.error}`);
+                }
+            } catch (error) {
+                console.error('Ошибка создания товара:', error);
+                alert('Ошибка создания товара');
             }
         }
 
