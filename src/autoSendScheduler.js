@@ -102,8 +102,19 @@ class AutoSendScheduler {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // Нормализуем входящий номер для сравнения
+    const normalizedPhone = clientPhone.replace(/[^0-9]/g, '');
+
     return invoices.some(invoice => {
-      if (!invoice.lastWhatsAppSent || invoice.clientPhone !== clientPhone) {
+      if (!invoice.lastWhatsAppSent || !invoice.clientPhone) {
+        return false;
+      }
+
+      // Нормализуем номер телефона из счета для сравнения
+      const invoicePhone = invoice.clientPhone.replace(/[^0-9]/g, '');
+
+      // Сравниваем нормализованные номера
+      if (invoicePhone !== normalizedPhone) {
         return false;
       }
 
