@@ -878,18 +878,26 @@
         }
 
         function updateStatistics(invoices) {
-            // Подсчет с учетом частичных оплат
+            // Подсчет с учетом частичных оплат и старого флага paid
             const paidCount = invoices.filter(inv => {
+                // Счет оплачен, если:
+                // 1. Установлен старый флаг paid: true (для обратной совместимости)
+                // 2. Или paidAmount >= общей суммы (новая система частичной оплаты)
+                if (inv.paid) return true;
                 const paidAmount = inv.paidAmount || 0;
                 return paidAmount >= inv.amount;
             }).length;
 
             const partiallyPaidCount = invoices.filter(inv => {
+                // Частично оплачен, если флаг paid=false и есть частичная оплата
+                if (inv.paid) return false;
                 const paidAmount = inv.paidAmount || 0;
                 return paidAmount > 0 && paidAmount < inv.amount;
             }).length;
 
             const unpaidCount = invoices.filter(inv => {
+                // Не оплачен, если флаг paid=false и нет оплаты
+                if (inv.paid) return false;
                 const paidAmount = inv.paidAmount || 0;
                 return paidAmount === 0;
             }).length;
