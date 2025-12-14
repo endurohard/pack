@@ -241,6 +241,48 @@ class AutoSendScheduler {
   }
 
   /**
+   * Получить шаблон сообщения-напоминания
+   */
+  getReminderMessageTemplate() {
+    try {
+      const settingsPath = path.join(__dirname, '../data/whatsapp-settings.json');
+      if (fs.existsSync(settingsPath)) {
+        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+        if (settings.reminder) {
+          return settings.reminder;
+        }
+      }
+    } catch (error) {
+      console.error('[AutoSend] Ошибка чтения шаблона напоминания:', error.message);
+    }
+
+    // Шаблон по умолчанию
+    return 'Добрый день!\n\nНапоминаем об оплате счета №{номер}.\n\nКлиент: {клиент}\nДата выставления: {дата}\nПросрочка: {дни}\n\nПожалуйста, произведите оплату в ближайшее время.\n\nС уважением.';
+  }
+
+  /**
+   * Получить правильное склонение слова "день"
+   */
+  getDaysWord(days) {
+    const lastDigit = days % 10;
+    const lastTwoDigits = days % 100;
+
+    if (lastTwoDigits >= 11 && lastTwoDigits <= 19) {
+      return 'дней';
+    }
+
+    if (lastDigit === 1) {
+      return 'день';
+    }
+
+    if (lastDigit >= 2 && lastDigit <= 4) {
+      return 'дня';
+    }
+
+    return 'дней';
+  }
+
+  /**
    * Отправить счет через WhatsApp
    */
   async sendInvoice(invoice) {
@@ -258,46 +300,85 @@ class AutoSendScheduler {
       phone = '7' + phone;
     }
 
-    // Формируем сообщение из шаблона
-    let messageTemplate = this.getGreetingMessageTemplate();
-    const message = messageTemplate.replace(/{номер}/g, invoice.invoiceNumber);
+    // Проверяем, был ли счет уже отправлен ранее
+    const wasAlreadySent = !!invoice.lastWhatsAppSent;
 
-    // Ищем PDF файл счета
-    const invoicesDir = path.join(__dirname, '../output');
-    const files = fs.readdirSync(invoicesDir);
+    if (wasAlreadySent) {
+      // Счет уже отправлялся - отправляем только напоминание (текст)
+      console.log(`[AutoSend] Счет №${invoice.invoiceNumber} уже отправлялся ранее - отправляем напоминание`);
 
-    const pdfFile = files.find(f => {
-      if (!f.endsWith('.pdf')) return false;
+      // Вычисляем количество дней с момента создания счета
+      const createdDate = new Date(invoice.createdAt);
+      const now = new Date();
+      const daysPassed = Math.floor((now - createdDate) / (1000 * 60 * 60 * 24));
 
-      // Проверяем новый формат: Счет_NUMBER_...
-      const newFormatMatch = f.match(/^Счет_(\d+)_/);
-      if (newFormatMatch && newFormatMatch[1] === String(invoice.invoiceNumber)) {
-        return true;
+      // Получаем шаблон напоминания
+      const messageTemplate = this.getReminderMessageTemplate();
+
+      // Формируем сообщение-напоминание, подставляя значения
+      const message = messageTemplate
+        .replace(/{номер}/g, invoice.invoiceNumber)
+        .replace(/{клиент}/g, invoice.client)
+        .replace(/{сумма}/g, invoice.amount?.toLocaleString('ru-RU'))
+        .replace(/{дата}/g, createdDate.toLocaleDateString('ru-RU'))
+        .replace(/{дни}/g, `${daysPassed} ${this.getDaysWord(daysPassed)}`);
+
+      console.log(`[AutoSend] Отправка напоминания (только текст) на ${phone}...`);
+
+      // Отправляем только текст через WhatsApp (без PDF файла)
+      const result = await this.whatsappManager.sendMessage(phone, message);
+
+      if (!result.success) {
+        throw new Error(result.error || 'Не удалось отправить напоминание');
       }
 
-      // Проверяем старый формат: invoice_NUMBER_...
-      const oldFormatMatch = f.match(/^invoice_(\d+)_/);
-      if (oldFormatMatch && oldFormatMatch[1] === String(invoice.invoiceNumber)) {
-        return true;
+      return result;
+
+    } else {
+      // Счет отправляется первый раз - отправляем PDF + текст
+      console.log(`[AutoSend] Первая отправка счета №${invoice.invoiceNumber} - отправляем PDF + текст`);
+
+      // Формируем сообщение из шаблона приветствия
+      let messageTemplate = this.getGreetingMessageTemplate();
+      const message = messageTemplate.replace(/{номер}/g, invoice.invoiceNumber);
+
+      // Ищем PDF файл счета
+      const invoicesDir = path.join(__dirname, '../output');
+      const files = fs.readdirSync(invoicesDir);
+
+      const pdfFile = files.find(f => {
+        if (!f.endsWith('.pdf')) return false;
+
+        // Проверяем новый формат: Счет_NUMBER_...
+        const newFormatMatch = f.match(/^Счет_(\d+)_/);
+        if (newFormatMatch && newFormatMatch[1] === String(invoice.invoiceNumber)) {
+          return true;
+        }
+
+        // Проверяем старый формат: invoice_NUMBER_...
+        const oldFormatMatch = f.match(/^invoice_(\d+)_/);
+        if (oldFormatMatch && oldFormatMatch[1] === String(invoice.invoiceNumber)) {
+          return true;
+        }
+
+        return false;
+      });
+
+      if (!pdfFile) {
+        throw new Error(`PDF файл для счета №${invoice.invoiceNumber} не найден`);
       }
 
-      return false;
-    });
+      const filePath = path.join(invoicesDir, pdfFile);
 
-    if (!pdfFile) {
-      throw new Error(`PDF файл для счета №${invoice.invoiceNumber} не найден`);
+      // Отправляем через WhatsApp
+      const result = await this.whatsappManager.sendMessageWithFile(phone, message, filePath);
+
+      if (!result.success) {
+        throw new Error(result.error || 'Не удалось отправить сообщение');
+      }
+
+      return result;
     }
-
-    const filePath = path.join(invoicesDir, pdfFile);
-
-    // Отправляем через WhatsApp
-    const result = await this.whatsappManager.sendMessageWithFile(phone, message, filePath);
-
-    if (!result.success) {
-      throw new Error(result.error || 'Не удалось отправить сообщение');
-    }
-
-    return result;
   }
 
   /**

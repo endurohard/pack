@@ -878,16 +878,38 @@
         }
 
         function updateStatistics(invoices) {
+            // Подсчет с учетом частичных оплат
+            const paidCount = invoices.filter(inv => {
+                const paidAmount = inv.paidAmount || 0;
+                return paidAmount >= inv.amount;
+            }).length;
+
+            const partiallyPaidCount = invoices.filter(inv => {
+                const paidAmount = inv.paidAmount || 0;
+                return paidAmount > 0 && paidAmount < inv.amount;
+            }).length;
+
+            const unpaidCount = invoices.filter(inv => {
+                const paidAmount = inv.paidAmount || 0;
+                return paidAmount === 0;
+            }).length;
+
             const stats = {
                 total: invoices.length,
-                paid: invoices.filter(inv => inv.paid).length,
-                unpaid: invoices.filter(inv => !inv.paid).length,
-                totalAmount: invoices.reduce((sum, inv) => sum + inv.amount, 0)
+                paid: paidCount,
+                partiallyPaid: partiallyPaidCount,
+                unpaid: unpaidCount,
+                totalAmount: invoices.reduce((sum, inv) => sum + inv.amount, 0),
+                paidTotalAmount: invoices.reduce((sum, inv) => sum + (inv.paidAmount || 0), 0),
+                remainingAmount: invoices.reduce((sum, inv) => {
+                    const paidAmount = inv.paidAmount || 0;
+                    return sum + (inv.amount - paidAmount);
+                }, 0)
             };
 
             // Статистика для отображаемых счетов
             document.getElementById('statTotal').textContent = stats.total;
-            document.getElementById('statPaid').textContent = stats.paid;
+            document.getElementById('statPaid').textContent = stats.paid + (stats.partiallyPaid > 0 ? ` (+${stats.partiallyPaid} частично)` : '');
             document.getElementById('statUnpaid').textContent = stats.unpaid;
             document.getElementById('statTotalAmount').textContent = formatMoney(stats.totalAmount);
 
@@ -920,9 +942,20 @@
                     tr.classList.add('invoice-paid');
                 }
 
-                const statusBadge = invoice.paid
-                    ? '<span class="status-badge status-paid" title="Оплачен">✓</span>'
-                    : '<span class="status-badge status-unpaid" title="Не оплачен">✗</span>';
+                // Обработка частичной оплаты
+                const paidAmount = invoice.paidAmount || 0;
+                const remainingAmount = invoice.amount - paidAmount;
+                const isFullyPaid = paidAmount >= invoice.amount;
+                const isPartiallyPaid = paidAmount > 0 && paidAmount < invoice.amount;
+
+                let statusBadge = '';
+                if (isFullyPaid) {
+                    statusBadge = '<span class="status-badge status-paid" title="Оплачен полностью">✓</span>';
+                } else if (isPartiallyPaid) {
+                    statusBadge = '<span class="status-badge" style="background: #fff3cd; color: #856404;" title="Частичная оплата">⚠</span>';
+                } else {
+                    statusBadge = '<span class="status-badge status-unpaid" title="Не оплачен">✗</span>';
+                }
 
                 const recurringBadge = invoice.isRecurring ? ' <span style="background: #e3f2fd; color: #1976d2; padding: 2px 4px; border-radius: 3px; font-size: 0.7em; cursor: help;" title="Абонемент">🔄</span>' : '';
                 const autoSendBadge = invoice.autoSendEnabled ? ' <span style="background: #e8f5e9; color: #2e7d32; padding: 2px 4px; border-radius: 3px; font-size: 0.7em; cursor: help;" title="Авторассылка включена">📅</span>' : '';
@@ -963,12 +996,26 @@
                     ? '<span title="Дата следующей рассылки" style="color: #2e7d32;">📅 ' + formatDate(dateToShow) + '</span>'
                     : formatDate(dateToShow);
 
+                // Форматируем сумму с учетом частичной оплаты
+                let amountDisplay = '';
+                if (isPartiallyPaid) {
+                    amountDisplay = `
+                        <div style="font-size: 0.9em;">
+                            <strong>${formatMoney(invoice.amount)}</strong><br>
+                            <span style="color: #28a745; font-size: 0.85em;">✓ ${formatMoney(paidAmount)}</span><br>
+                            <span style="color: #dc3545; font-size: 0.85em;">− ${formatMoney(remainingAmount)}</span>
+                        </div>
+                    `;
+                } else {
+                    amountDisplay = `<strong>${formatMoney(invoice.amount)}</strong>`;
+                }
+
                 tr.innerHTML = `
                     <td style="word-break: break-word;"><strong>#${invoice.invoiceNumber}</strong>${recurringBadge}${autoSendBadge}${reminderBadge}${whatsappSentBadge}</td>
                     <td style="word-break: break-word;">${invoice.client || '<span style="color: #999;">Не указан</span>'}</td>
                     <td style="font-size: 0.85em;">${dateLabel}</td>
-                    <td><strong>${formatMoney(invoice.amount)}</strong></td>
-                    <td class="toggle-payment" onclick="togglePayment('${invoice.id}', ${!invoice.paid})">${statusBadge}</td>
+                    <td>${amountDisplay}</td>
+                    <td class="toggle-payment" onclick="handlePaymentClick('${invoice.id}')">${statusBadge}</td>
                     <td>
                         <div class="actions">
                             <button class="action-btn action-view" onclick="viewInvoice('${invoice.filename}')" title="Просмотр PDF">👁️</button>
@@ -996,6 +1043,77 @@
                     sendWhatsApp(invoiceId, invoiceNumber, clientName, clientPhone);
                 });
             });
+        }
+
+        async function handlePaymentClick(id) {
+            const invoice = allInvoices.find(inv => inv.id === id);
+            if (!invoice) return;
+
+            const paidAmount = invoice.paidAmount || 0;
+            const remainingAmount = invoice.amount - paidAmount;
+            const isFullyPaid = paidAmount >= invoice.amount;
+
+            if (isFullyPaid) {
+                // Счет оплачен полностью - предлагаем отменить оплату
+                const confirmMessage = `Счет №${invoice.invoiceNumber} полностью оплачен.\n\nОтменить оплату?`;
+                if (confirm(confirmMessage)) {
+                    await updatePartialPayment(id, 0);
+                }
+            } else {
+                // Счет не оплачен или частично оплачен - запрашиваем сумму
+                const message = paidAmount > 0
+                    ? `Частичная оплата: ${paidAmount.toLocaleString('ru-RU')} ₽\nОстаток: ${remainingAmount.toLocaleString('ru-RU')} ₽\n\nВведите сумму оплаты (или полную сумму для полной оплаты):`
+                    : `Сумма счета: ${invoice.amount.toLocaleString('ru-RU')} ₽\n\nВведите сумму оплаты:`;
+
+                const input = prompt(message, remainingAmount.toLocaleString('ru-RU'));
+
+                if (input !== null) {
+                    // Парсим введенную сумму (убираем пробелы и запятые)
+                    const amount = parseFloat(input.replace(/[^\d.]/g, ''));
+
+                    if (isNaN(amount) || amount < 0) {
+                        alert('Некорректная сумма');
+                        return;
+                    }
+
+                    const newPaidAmount = paidAmount + amount;
+                    await updatePartialPayment(id, newPaidAmount);
+                }
+            }
+        }
+
+        async function updatePartialPayment(id, paidAmount) {
+            const invoice = allInvoices.find(inv => inv.id === id);
+            if (!invoice) return;
+
+            try {
+                const response = await fetch(`/api/invoices/${id}/partial-payment`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ paidAmount })
+                });
+
+                if (response.ok) {
+                    console.log(`[Frontend] ✅ Частичная оплата обновлена для счета №${invoice.invoiceNumber}: ${paidAmount} ₽`);
+
+                    if (paidAmount >= invoice.amount) {
+                        showNotification('✅ Оплачено', `Счет №${invoice.invoiceNumber} полностью оплачен`);
+                    } else if (paidAmount > 0) {
+                        const remaining = invoice.amount - paidAmount;
+                        showNotification('💰 Частичная оплата', `Оплачено: ${paidAmount.toLocaleString('ru-RU')} ₽\nОстаток: ${remaining.toLocaleString('ru-RU')} ₽`);
+                    } else {
+                        showNotification('ℹ️ Оплата отменена', `Счет №${invoice.invoiceNumber} помечен как неоплаченный`);
+                    }
+
+                    loadInvoices();
+                } else {
+                    const error = await response.json();
+                    alert(`Ошибка: ${error.error}`);
+                }
+            } catch (error) {
+                console.error('Ошибка обновления частичной оплаты:', error);
+                alert('Ошибка обновления частичной оплаты');
+            }
         }
 
         async function togglePayment(id, paid) {

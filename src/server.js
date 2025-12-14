@@ -671,6 +671,33 @@ app.put('/api/invoices/:id/payment', async (req, res) => {
   }
 });
 
+// Обновить частичную оплату
+app.put('/api/invoices/:id/partial-payment', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { paidAmount } = req.body;
+
+    const invoice = db.getInvoiceById(id);
+    if (!invoice) {
+      return res.status(404).json({ error: 'Счет не найден' });
+    }
+
+    // Обновляем сумму частичной оплаты
+    const updatedInvoice = db.updateInvoice(id, {
+      paidAmount: paidAmount,
+      // Если оплачена полная сумма или больше - помечаем как оплаченный
+      paid: paidAmount >= invoice.amount
+    });
+
+    console.log(`[PartialPayment] Счет №${invoice.invoiceNumber}: оплачено ${paidAmount} ₽ из ${invoice.amount} ₽`);
+
+    res.json(updatedInvoice);
+  } catch (error) {
+    console.error('Ошибка обновления частичной оплаты:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Удалить счет
 app.delete('/api/invoices/:id', (req, res) => {
   try {
