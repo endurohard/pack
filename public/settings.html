@@ -281,11 +281,18 @@
             <h2>💬 Настройки WhatsApp сообщений</h2>
             <form id="whatsappForm">
                 <div class="form-group">
-                    <label for="whatsappGreeting">Текст приветствия</label>
-                    <textarea id="whatsappGreeting" rows="6" style="width: 100%; padding: 12px; border: 2px solid #e1e8ed; border-radius: 8px; font-size: 16px; font-family: inherit; resize: vertical;" placeholder="Добрый день!&#10;&#10;Высылаю счет №{номер} на оплату.&#10;&#10;С уважением."></textarea>
-                    <small style="color: #666; font-size: 0.9em;">💡 Используйте {номер} для автоматической подстановки номера счета</small>
+                    <label for="whatsappGreeting">Текст приветствия при отправке счета</label>
+                    <textarea id="whatsappGreeting" rows="4" style="width: 100%; padding: 12px; border: 2px solid #e1e8ed; border-radius: 8px; font-size: 16px; font-family: inherit; resize: vertical;" placeholder="Добрый день!&#10;&#10;Высылаю счет №{номер} на оплату.&#10;&#10;С уважением."></textarea>
+                    <small style="color: #666; font-size: 0.9em;">💡 Доступные переменные: <strong>{номер}</strong></small>
                 </div>
-                <button type="submit" class="btn btn-primary">💾 Сохранить сообщение</button>
+
+                <div class="form-group">
+                    <label for="whatsappReminder">Текст напоминания о просрочке платежа</label>
+                    <textarea id="whatsappReminder" rows="7" style="width: 100%; padding: 12px; border: 2px solid #e1e8ed; border-radius: 8px; font-size: 16px; font-family: inherit; resize: vertical;" placeholder="Добрый день!&#10;&#10;Напоминаем об оплате счета №{номер}.&#10;&#10;Сумма: {сумма} ₽&#10;Дата выставления: {дата}&#10;Просрочка: {дни}&#10;&#10;Пожалуйста, произведите оплату."></textarea>
+                    <small style="color: #666; font-size: 0.9em;">💡 Доступные переменные: <strong>{номер}</strong>, <strong>{клиент}</strong>, <strong>{сумма}</strong>, <strong>{дата}</strong>, <strong>{дни}</strong> (дни просрочки)</small>
+                </div>
+
+                <button type="submit" class="btn btn-primary">💾 Сохранить сообщения</button>
             </form>
             <div class="info-box">
                 <p>💡 Это сообщение будет использоваться при отправке счетов через WhatsApp</p>
@@ -315,6 +322,67 @@
                 <p style="color: #856404; line-height: 1.6; margin-top: 10px;">
                     Это обеспечит корректную работу автоматической отправки PDF через WhatsApp.
                 </p>
+            </div>
+        </div>
+
+        <!-- Auto-Send Settings -->
+        <div class="settings-section" style="border-left: 4px solid #667eea;">
+            <h2>⏰ Автоматическая рассылка</h2>
+            <form id="autoSendForm">
+                <div class="form-group">
+                    <label style="font-size: 1.1em; font-weight: 600; color: #333; margin-bottom: 10px; display: block;">Время ежедневной рассылки счетов</label>
+                    <div style="display: flex; gap: 15px; align-items: center; max-width: 300px;">
+                        <div style="flex: 1;">
+                            <label for="sendTimeHour" style="font-size: 0.9em; font-weight: normal; color: #666; margin-bottom: 5px; display: block;">Часы</label>
+                            <select id="sendTimeHour" style="width: 100%; padding: 12px; border: 2px solid #e1e8ed; border-radius: 8px; font-size: 18px; font-weight: 600; text-align: center;">
+                                <option value="0">00</option>
+                                <option value="1">01</option>
+                                <option value="2">02</option>
+                                <option value="3">03</option>
+                                <option value="4">04</option>
+                                <option value="5">05</option>
+                                <option value="6">06</option>
+                                <option value="7">07</option>
+                                <option value="8">08</option>
+                                <option value="9">09</option>
+                                <option value="10" selected>10</option>
+                                <option value="11">11</option>
+                                <option value="12">12</option>
+                                <option value="13">13</option>
+                                <option value="14">14</option>
+                                <option value="15">15</option>
+                                <option value="16">16</option>
+                                <option value="17">17</option>
+                                <option value="18">18</option>
+                                <option value="19">19</option>
+                                <option value="20">20</option>
+                                <option value="21">21</option>
+                                <option value="22">22</option>
+                                <option value="23">23</option>
+                            </select>
+                        </div>
+                        <div style="font-size: 2em; font-weight: bold; color: #667eea; padding-top: 25px;">:</div>
+                        <div style="flex: 1;">
+                            <label for="sendTimeMinute" style="font-size: 0.9em; font-weight: normal; color: #666; margin-bottom: 5px; display: block;">Минуты</label>
+                            <select id="sendTimeMinute" style="width: 100%; padding: 12px; border: 2px solid #e1e8ed; border-radius: 8px; font-size: 18px; font-weight: 600; text-align: center;">
+                                <option value="0" selected>00</option>
+                                <option value="15">15</option>
+                                <option value="30">30</option>
+                                <option value="45">45</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">💾 Сохранить время рассылки</button>
+            </form>
+            <div class="info-box" style="margin-top: 20px; border-left-color: #667eea;">
+                <p style="color: #667eea; font-weight: 600; margin-bottom: 8px;">📋 Как работает автоматическая рассылка:</p>
+                <ul style="color: #667eea; margin-left: 20px; line-height: 1.8;">
+                    <li>Система проверяет счета каждые 10 минут</li>
+                    <li>Рассылка происходит только в указанное время (±10 минут)</li>
+                    <li><strong>Ограничение:</strong> одному клиенту отправляется не более 1 счета в день</li>
+                    <li>Для включения авторассылки: в списке счетов включите "Авторассылка" для нужного счета</li>
+                </ul>
             </div>
         </div>
 
@@ -451,23 +519,101 @@
             }
         }
 
-        // Load WhatsApp message settings from localStorage
-        function loadWhatsAppSettings() {
-            const settings = JSON.parse(localStorage.getItem('whatsappMessageSettings') || '{}');
-            const defaultMessage = 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.';
-            document.getElementById('whatsappGreeting').value = settings.greeting || defaultMessage;
+        // Load WhatsApp message settings from server
+        async function loadWhatsAppSettings() {
+            try {
+                const response = await fetch('/api/whatsapp/settings');
+                const data = await response.json();
+
+                if (data.success && data.settings) {
+                    const settings = data.settings;
+                    document.getElementById('whatsappGreeting').value = settings.greeting || 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.';
+                    document.getElementById('whatsappReminder').value = settings.reminder || 'Добрый день!\n\nНапоминаем об оплате счета №{номер}.\n\nКлиент: {клиент}\nСумма: {сумма} ₽\nДата выставления: {дата}\nПросрочка: {дни}\n\nПожалуйста, произведите оплату в ближайшее время.\n\nС уважением.';
+                    document.getElementById('sendTimeHour').value = settings.sendTimeHour !== undefined ? settings.sendTimeHour : 10;
+                    document.getElementById('sendTimeMinute').value = settings.sendTimeMinute !== undefined ? settings.sendTimeMinute : 0;
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки настроек WhatsApp:', error);
+                // Устанавливаем значения по умолчанию
+                document.getElementById('whatsappGreeting').value = 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.';
+                document.getElementById('whatsappReminder').value = 'Добрый день!\n\nНапоминаем об оплате счета №{номер}.\n\nКлиент: {клиент}\nСумма: {сумма} ₽\nДата выставления: {дата}\nПросрочка: {дни}\n\nПожалуйста, произведите оплату в ближайшее время.\n\nС уважением.';
+                document.getElementById('sendTimeHour').value = 10;
+                document.getElementById('sendTimeMinute').value = 0;
+            }
         }
 
         // Save WhatsApp message settings
-        document.getElementById('whatsappForm').addEventListener('submit', (e) => {
+        document.getElementById('whatsappForm').addEventListener('submit', async (e) => {
             e.preventDefault();
 
-            const settings = {
-                greeting: document.getElementById('whatsappGreeting').value
-            };
+            try {
+                const response = await fetch('/api/whatsapp/settings');
+                const currentData = await response.json();
+                const currentSettings = currentData.settings || {};
 
-            localStorage.setItem('whatsappMessageSettings', JSON.stringify(settings));
-            alert('✅ Сообщение WhatsApp сохранено!');
+                const settings = {
+                    greeting: document.getElementById('whatsappGreeting').value,
+                    reminder: document.getElementById('whatsappReminder').value,
+                    sendTimeHour: currentSettings.sendTimeHour || 10,
+                    sendTimeMinute: currentSettings.sendTimeMinute || 0
+                };
+
+                const saveResponse = await fetch('/api/whatsapp/settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(settings)
+                });
+
+                const data = await saveResponse.json();
+
+                if (data.success) {
+                    alert('✅ Сообщения WhatsApp сохранены!');
+                } else {
+                    alert('❌ Ошибка при сохранении настроек');
+                }
+            } catch (error) {
+                console.error('Ошибка сохранения настроек:', error);
+                alert('❌ Ошибка соединения с сервером');
+            }
+        });
+
+        // Save auto-send time settings
+        document.getElementById('autoSendForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            try {
+                const response = await fetch('/api/whatsapp/settings');
+                const currentData = await response.json();
+                const currentSettings = currentData.settings || {};
+
+                const settings = {
+                    greeting: currentSettings.greeting || '',
+                    reminder: currentSettings.reminder || '',
+                    sendTimeHour: parseInt(document.getElementById('sendTimeHour').value),
+                    sendTimeMinute: parseInt(document.getElementById('sendTimeMinute').value)
+                };
+
+                const saveResponse = await fetch('/api/whatsapp/settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(settings)
+                });
+
+                const data = await saveResponse.json();
+
+                if (data.success) {
+                    alert('✅ Время рассылки сохранено!');
+                } else {
+                    alert('❌ Ошибка при сохранении настроек');
+                }
+            } catch (error) {
+                console.error('Ошибка сохранения настроек:', error);
+                alert('❌ Ошибка соединения с сервером');
+            }
         });
 
         // Load default payment settings from localStorage

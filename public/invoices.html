@@ -676,8 +676,18 @@
                 <div class="value" id="statUnpaid">0</div>
             </div>
             <div class="stat-card total">
-                <h3>Общая сумма</h3>
+                <h3>Сумма счетов</h3>
                 <div class="value" id="statTotalAmount">0₽</div>
+                <div style="font-size: 0.75em; color: #666; margin-top: 5px;">
+                    <span id="totalAmountLabel">отображаемых</span>
+                </div>
+            </div>
+            <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                <h3 style="color: white;">Всего в системе</h3>
+                <div class="value" id="statGrandTotal" style="color: white;">0₽</div>
+                <div style="font-size: 0.75em; opacity: 0.9; margin-top: 5px;">
+                    <span id="grandTotalCount">0</span> счетов
+                </div>
             </div>
         </div>
 
@@ -875,10 +885,27 @@
                 totalAmount: invoices.reduce((sum, inv) => sum + inv.amount, 0)
             };
 
+            // Статистика для отображаемых счетов
             document.getElementById('statTotal').textContent = stats.total;
             document.getElementById('statPaid').textContent = stats.paid;
             document.getElementById('statUnpaid').textContent = stats.unpaid;
             document.getElementById('statTotalAmount').textContent = formatMoney(stats.totalAmount);
+
+            // Общая статистика по всем счетам в системе
+            const grandStats = {
+                total: allInvoices.length,
+                totalAmount: allInvoices.reduce((sum, inv) => sum + inv.amount, 0)
+            };
+
+            document.getElementById('statGrandTotal').textContent = formatMoney(grandStats.totalAmount);
+            document.getElementById('grandTotalCount').textContent = grandStats.total;
+
+            // Обновляем подпись в зависимости от фильтра
+            if (invoices.length === allInvoices.length) {
+                document.getElementById('totalAmountLabel').textContent = 'всех счетов';
+            } else {
+                document.getElementById('totalAmountLabel').textContent = 'отображаемых';
+            }
         }
 
         function renderInvoices(invoices) {

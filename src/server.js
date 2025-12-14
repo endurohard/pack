@@ -579,8 +579,8 @@ app.put('/api/invoices/:id/payment', async (req, res) => {
       return res.status(404).json({ error: 'Счет не найден' });
     }
 
-    // Если счет отмечен как оплаченный И включен абонемент И авторассылка - автоматически создаем новый на следующий месяц
-    if (paid && wasUnpaid && invoice.isRecurring && invoice.autoSendEnabled) {  // Изменение статуса с неоплачен на оплачен + абонемент + авторассылка включены
+    // Если счет отмечен как оплаченный И включен абонемент - автоматически создаем новый на следующий месяц
+    if (paid && wasUnpaid && invoice.isRecurring) {  // Изменение статуса с неоплачен на оплачен + абонемент включен
       try {
         console.log(`[AutoDuplicate] Счет №${invoice.invoiceNumber} оплачен (абонемент), создаем новый счет на следующий месяц...`);
 
@@ -611,11 +611,8 @@ app.put('/api/invoices/:id/payment', async (req, res) => {
           }
         }
 
-        // Берем дату следующей отправки оригинального счета (если есть) или дату создания
-        const baseDate = invoice.nextSendDate ? new Date(invoice.nextSendDate) : new Date(invoice.createdAt);
-
-        // Вычисляем дату следующей отправки (следующий месяц, то же число)
-        const nextSendDate = new Date(baseDate);
+        // Вычисляем дату следующей отправки (текущая дата + 1 месяц, то же число)
+        const nextSendDate = new Date();
         nextSendDate.setMonth(nextSendDate.getMonth() + 1);
 
         // ✅ ИСПРАВЛЕНО: Дата создания нового счета = дата следующей отправки (следующий месяц)
@@ -1527,12 +1524,14 @@ app.post('/api/payment-reminders/send-now', async (req, res) => {
 // API endpoint для сохранения настроек WhatsApp сообщений
 app.post('/api/whatsapp/settings', (req, res) => {
   try {
-    const { greeting, reminder } = req.body;
+    const { greeting, reminder, sendTimeHour, sendTimeMinute } = req.body;
     const settingsPath = path.join(__dirname, '../data/whatsapp-settings.json');
 
     const settings = {
       greeting: greeting || '',
-      reminder: reminder || ''
+      reminder: reminder || '',
+      sendTimeHour: sendTimeHour !== undefined ? parseInt(sendTimeHour) : 10,
+      sendTimeMinute: sendTimeMinute !== undefined ? parseInt(sendTimeMinute) : 0
     };
 
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
@@ -1557,7 +1556,9 @@ app.get('/api/whatsapp/settings', (req, res) => {
         success: true,
         settings: {
           greeting: 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.',
-          reminder: 'Добрый день!\n\nНапоминаем об оплате счета №{номер}.\n\nКлиент: {клиент}\nСумма: {сумма} ₽\nДата выставления: {дата}\nПросрочка: {дни}\n\nПожалуйста, произведите оплату в ближайшее время.\n\nС уважением.'
+          reminder: 'Добрый день!\n\nНапоминаем об оплате счета №{номер}.\n\nКлиент: {клиент}\nСумма: {сумма} ₽\nДата выставления: {дата}\nПросрочка: {дни}\n\nПожалуйста, произведите оплату в ближайшее время.\n\nС уважением.',
+          sendTimeHour: 10,
+          sendTimeMinute: 0
         }
       });
     }

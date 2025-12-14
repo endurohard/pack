@@ -53,6 +53,68 @@ class AutoSendScheduler {
   }
 
   /**
+   * Проверить, наступило ли время рассылки
+   */
+  isTimeToSend() {
+    const settings = this.getSettings();
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+
+    const targetHour = settings.sendTimeHour || 10;
+    const targetMinute = settings.sendTimeMinute || 0;
+
+    // Проверяем, что текущее время находится в пределах 10 минут от целевого времени
+    // (так как проверка происходит каждые 10 минут)
+    const currentTotalMinutes = currentHour * 60 + currentMinute;
+    const targetTotalMinutes = targetHour * 60 + targetMinute;
+
+    // Разрешаем отправку в течение 10 минут после указанного времени
+    const diff = currentTotalMinutes - targetTotalMinutes;
+    return diff >= 0 && diff < 10;
+  }
+
+  /**
+   * Получить настройки из файла
+   */
+  getSettings() {
+    try {
+      const settingsPath = path.join(__dirname, '../data/whatsapp-settings.json');
+      if (fs.existsSync(settingsPath)) {
+        return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      }
+    } catch (error) {
+      console.error('[AutoSend] Ошибка чтения настроек:', error.message);
+    }
+
+    // Возвращаем настройки по умолчанию
+    return {
+      sendTimeHour: 10,
+      sendTimeMinute: 0
+    };
+  }
+
+  /**
+   * Проверить, отправлялись ли сегодня счета этому клиенту
+   */
+  wasSentToClientToday(clientPhone) {
+    const invoices = this.db.getAllInvoices();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return invoices.some(invoice => {
+      if (!invoice.lastWhatsAppSent || invoice.clientPhone !== clientPhone) {
+        return false;
+      }
+
+      const lastSent = new Date(invoice.lastWhatsAppSent);
+      lastSent.setHours(0, 0, 0, 0);
+
+      return lastSent.getTime() === today.getTime();
+    });
+  }
+
+  /**
    * Проверить и отправить счета
    */
   async checkAndSend() {
@@ -63,7 +125,15 @@ class AutoSendScheduler {
 
     try {
       this.isProcessing = true;
-      console.log('[AutoSend] Проверка счетов для автоматической отправки...');
+
+      // Проверяем, наступило ли время рассылки
+      if (!this.isTimeToSend()) {
+        const settings = this.getSettings();
+        console.log(`[AutoSend] Время рассылки еще не наступило. Запланировано на ${settings.sendTimeHour}:${String(settings.sendTimeMinute).padStart(2, '0')}`);
+        return;
+      }
+
+      console.log('[AutoSend] Время рассылки наступило! Проверка счетов для автоматической отправки...');
 
       const invoices = this.db.getInvoicesForAutoSend();
 
@@ -74,11 +144,33 @@ class AutoSendScheduler {
 
       console.log(`[AutoSend] Найдено счетов для отправки: ${invoices.length}`);
 
-      // Отправляем счета с задержкой между ними
-      for (let i = 0; i < invoices.length; i++) {
-        const invoice = invoices[i];
+      // Фильтруем счета: исключаем клиентов, которым уже отправляли сегодня
+      const filteredInvoices = invoices.filter(invoice => {
+        if (!invoice.clientPhone) {
+          console.log(`[AutoSend] Пропускаем счет №${invoice.invoiceNumber}: нет номера телефона`);
+          return false;
+        }
 
-        console.log(`[AutoSend] Отправка счета ${i + 1}/${invoices.length}: №${invoice.invoiceNumber} для клиента ${invoice.client}`);
+        if (this.wasSentToClientToday(invoice.clientPhone)) {
+          console.log(`[AutoSend] Пропускаем счет №${invoice.invoiceNumber} для клиента ${invoice.client}: уже отправляли сегодня`);
+          return false;
+        }
+
+        return true;
+      });
+
+      if (filteredInvoices.length === 0) {
+        console.log('[AutoSend] Нет счетов для отправки после фильтрации (всем клиентам уже отправляли сегодня)');
+        return;
+      }
+
+      console.log(`[AutoSend] После фильтрации осталось счетов для отправки: ${filteredInvoices.length}`);
+
+      // Отправляем счета с задержкой между ними
+      for (let i = 0; i < filteredInvoices.length; i++) {
+        const invoice = filteredInvoices[i];
+
+        console.log(`[AutoSend] Отправка счета ${i + 1}/${filteredInvoices.length}: №${invoice.invoiceNumber} для клиента ${invoice.client}`);
 
         try {
           await this.sendInvoice(invoice);
@@ -102,7 +194,7 @@ class AutoSendScheduler {
         }
 
         // Ждем 10 минут перед следующей отправкой (кроме последнего)
-        if (i < invoices.length - 1) {
+        if (i < filteredInvoices.length - 1) {
           console.log(`[AutoSend] Ожидание 10 минут перед следующей отправкой...`);
           await this.sleep(this.sendDelay);
         }

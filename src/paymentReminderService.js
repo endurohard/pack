@@ -206,44 +206,12 @@ class PaymentReminderService {
       .replace(/{дата}/g, createdDate.toLocaleDateString('ru-RU'))
       .replace(/{дни}/g, `${daysPassed} ${this.getDaysWord(daysPassed)}`);
 
-    // Ищем PDF файл счета
-    const invoicesDir = path.join(__dirname, '../output');
-    const files = fs.readdirSync(invoicesDir);
-
-    const pdfFile = files.find(f => {
-      if (!f.endsWith('.pdf')) return false;
-
-      // Приводим номер счета к числу для сравнения (убираем ведущие нули)
-      const invoiceNum = parseInt(invoice.invoiceNumber, 10);
-
-      // Проверяем новый формат: Счет_NUMBER_...
-      const newFormatMatch = f.match(/^Счет_(\d+)_/);
-      if (newFormatMatch && parseInt(newFormatMatch[1], 10) === invoiceNum) {
-        return true;
-      }
-
-      // Проверяем старый формат: invoice_NUMBER_...
-      const oldFormatMatch = f.match(/^invoice_(\d+)_/);
-      if (oldFormatMatch && parseInt(oldFormatMatch[1], 10) === invoiceNum) {
-        return true;
-      }
-
-      return false;
-    });
-
-    if (!pdfFile) {
-      throw new Error(`PDF файл для счета №${invoice.invoiceNumber} не найден`);
-    }
-
-    const filePath = path.join(invoicesDir, pdfFile);
-
     console.log(`[PaymentReminder] Отправка напоминания для счета №${invoice.invoiceNumber}`);
     console.log(`[PaymentReminder] Телефон: ${phone}`);
-    console.log(`[PaymentReminder] Файл: ${pdfFile}`);
-    console.log(`[PaymentReminder] Сообщение:\n${message}`);
+    console.log(`[PaymentReminder] Сообщение (только текст, без файла):\n${message}`);
 
-    // Отправляем через WhatsApp
-    const result = await this.whatsappManager.sendMessageWithFile(phone, message, filePath);
+    // Отправляем только текст через WhatsApp (без PDF файла)
+    const result = await this.whatsappManager.sendMessage(phone, message);
 
     if (!result.success) {
       throw new Error(result.error || 'Не удалось отправить сообщение');
