@@ -25,6 +25,7 @@ class WhatsAppManager {
       this.browser = await puppeteer.launch({
         headless: false,
         userDataDir: this.sessionDir,
+        protocolTimeout: 300000, // 5 минут вместо дефолтных 180 секунд
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -32,7 +33,8 @@ class WhatsAppManager {
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
           '--no-zygote',
-          '--disable-gpu'
+          '--disable-gpu',
+          '--proxy-server=socks5://127.0.0.1:1080'
         ]
       });
 
@@ -96,18 +98,143 @@ class WhatsAppManager {
 
       console.log(`📤 Отправка сообщения на ${cleanPhone}...`);
 
-      await this.page.goto(`https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`, {
-        waitUntil: 'networkidle2',
-        timeout: 30000
-      });
+      // Открываем чат
+      const currentUrl = this.page.url();
+      if (!currentUrl.includes('web.whatsapp.com')) {
+        console.log('🌐 Открываю WhatsApp Web...');
+        await this.page.goto(`https://web.whatsapp.com/send?phone=${cleanPhone}`, {
+          waitUntil: 'networkidle2',
+          timeout: 60000
+        });
+      } else {
+        console.log('✅ WhatsApp Web уже открыт, открываю чат...');
+        await this.page.evaluate((phone) => {
+          window.location.href = `https://web.whatsapp.com/send?phone=${phone}`;
+        }, cleanPhone);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
 
-      await this.page.waitForSelector('[data-testid="conversation-compose-box-input"]', { timeout: 15000 });
+      // Ждем появления чата
+      console.log('⏳ Ожидание загрузки чата...');
+
+      // Сначала ждем исчезновения модального окна "Начало чата", если оно есть
+      try {
+        const chatStartModal = await this.page.waitForFunction(
+          () => {
+            const text = document.body.textContent || '';
+            return text.includes('Начало чата');
+          },
+          { timeout: 5000 }
+        ).catch(() => null);
+
+        if (chatStartModal) {
+          console.log('  Ожидание окончания загрузки чата...');
+          await this.page.waitForFunction(
+            () => {
+              const text = document.body.textContent || '';
+              return !text.includes('Начало чата');
+            },
+            { timeout: 40000 }
+          );
+          console.log('  Модальное окно загрузки исчезло');
+        }
+      } catch (e) {
+        console.log('  Модального окна загрузки нет, продолжаем...');
+      }
+
+      // Теперь ждем появления элементов чата
+      const chatLoaded = await Promise.race([
+        this.page.waitForSelector('[data-testid="conversation-compose-box-input"]', { timeout: 30000 }).catch(() => null),
+        this.page.waitForSelector('footer [contenteditable="true"]', { timeout: 30000 }).catch(() => null),
+        this.page.waitForSelector('div[contenteditable="true"][data-tab="10"]', { timeout: 30000 }).catch(() => null),
+      ]);
+
+      if (!chatLoaded) {
+        console.error('❌ Не удалось дождаться загрузки чата');
+        await this.page.screenshot({ path: '/tmp/whatsapp_chat_error.png' });
+        throw new Error('Чат не загрузился');
+      }
+
+      console.log('✅ Чат загружен');
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      const sendButton = await this.page.$('[data-testid="send"]');
+      // Ищем поле ввода
+      const inputSelectors = [
+        '[data-testid="conversation-compose-box-input"]',
+        'footer [contenteditable="true"]',
+        'div[contenteditable="true"][data-tab="10"]'
+      ];
+
+      let inputBox = null;
+      for (const selector of inputSelectors) {
+        inputBox = await this.page.$(selector);
+        if (inputBox) {
+          console.log(`  Найдено поле ввода: ${selector}`);
+          break;
+        }
+      }
+
+      if (!inputBox) {
+        throw new Error('Поле ввода сообщения не найдено');
+      }
+
+      // Кликаем на поле ввода и вводим текст
+      await inputBox.click();
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await this.page.keyboard.type(message);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Нажимаем кнопку отправки
+      const sendButtonSelectors = [
+        '[data-testid="send"]',
+        'span[data-icon="send"]',
+        'button[aria-label*="Send"]',
+        'button[aria-label*="Отправить"]',
+        'span[data-testid="send"]'
+      ];
+
+      let sendButton = null;
+      for (const selector of sendButtonSelectors) {
+        sendButton = await this.page.$(selector);
+        if (sendButton) {
+          console.log(`  Найдена кнопка отправки: ${selector}`);
+          break;
+        }
+      }
+
+      if (!sendButton) {
+        // Последняя попытка - ищем через evaluate
+        const clicked = await this.page.evaluate(() => {
+          const buttons = Array.from(document.querySelectorAll('button, span[role="button"]'));
+          for (const btn of buttons) {
+            const ariaLabel = btn.getAttribute('aria-label') || '';
+            const testId = btn.getAttribute('data-testid') || '';
+            const innerHTML = btn.innerHTML || '';
+
+            if (ariaLabel.toLowerCase().includes('send') ||
+                ariaLabel.toLowerCase().includes('отправить') ||
+                testId === 'send' ||
+                innerHTML.includes('data-icon="send"')) {
+              btn.click();
+              return true;
+            }
+          }
+          return false;
+        });
+
+        if (clicked) {
+          console.log('✅ Сообщение отправлено через JavaScript evaluation');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return { success: true, message: 'Сообщение отправлено' };
+        } else {
+          throw new Error('Кнопка отправки не найдена');
+        }
+      }
+
       if (sendButton) {
         await sendButton.click();
         console.log('✅ Сообщение отправлено');
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
       return { success: true, message: 'Сообщение отправлено' };
