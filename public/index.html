@@ -217,6 +217,10 @@
             background-color: rgba(0,0,0,0.8);
         }
 
+        .modal.show {
+            display: block;
+        }
+
         .modal-content {
             background-color: white;
             margin: 2% auto;
@@ -1258,8 +1262,11 @@
 
             // Если товар не найден - предлагаем создать
             if (!product) {
+                console.log(`🔍 Товар "${productName}" не найден, открываю окно создания`);
                 currentInputRow = input;
                 openNewProductModal(productName);
+            } else {
+                console.log(`✅ Товар "${productName}" найден в базе`);
             }
         }
 

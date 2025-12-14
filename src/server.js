@@ -11,6 +11,7 @@ import whatsappManager from './whatsappManager.js';
 import invoiceCounter from './invoiceCounter.js';
 import AutoSendScheduler from './autoSendScheduler.js';
 import PaymentReminderService from './paymentReminderService.js';
+import InvoiceTelegramBot from './telegramBot.js';
 import { authMiddleware, loginHandler, verifyHandler, logoutHandler } from './authMiddleware.js';
 import authDatabase from './authDatabase.js';
 import fs from 'fs';
@@ -165,6 +166,9 @@ let autoSendScheduler = null;
 
 // Создаем сервис напоминаний об оплате
 let paymentReminderService = null;
+
+// Создаем Telegram бота
+let telegramBot = null;
 
 // Функция для очистки имени файла
 function sanitizeFilename(name) {
@@ -1751,6 +1755,10 @@ async function initWhatsApp() {
     // Запускаем сервис напоминаний об оплате
     paymentReminderService = new PaymentReminderService(whatsappManager);
     paymentReminderService.start();
+
+    // Запускаем Telegram бота
+    telegramBot = new InvoiceTelegramBot(invoiceDb, whatsappManager, invoiceService);
+    console.log('[TelegramBot] Telegram бот инициализирован');
   } catch (error) {
     console.error('❌ Ошибка инициализации WhatsApp:', error.message);
     console.error('   WhatsApp отправка будет недоступна');
