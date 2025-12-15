@@ -73,7 +73,10 @@ class InvoiceTelegramBot {
                 params: {
                     offset: this.lastUpdateId,
                     timeout: 30
-                }
+                },
+                proxy: false, // Отключаем прокси для Telegram API
+                httpAgent: null,
+                httpsAgent: null
             });
 
             if (response.data.ok) {
@@ -94,6 +97,10 @@ class InvoiceTelegramBot {
                 text: text,
                 parse_mode: options.parse_mode || 'HTML',
                 reply_markup: options.reply_markup
+            }, {
+                proxy: false,
+                httpAgent: null,
+                httpsAgent: null
             });
         } catch (error) {
             console.error('[TelegramBot] Ошибка отправки сообщения:', error.message);
@@ -109,6 +116,10 @@ class InvoiceTelegramBot {
                 text: text,
                 parse_mode: options.parse_mode || 'HTML',
                 reply_markup: options.reply_markup
+            }, {
+                proxy: false,
+                httpAgent: null,
+                httpsAgent: null
             });
         } catch (error) {
             console.error('[TelegramBot] Ошибка редактирования сообщения:', error.message);
@@ -121,6 +132,10 @@ class InvoiceTelegramBot {
             await axios.post(`${this.apiUrl}/deleteMessage`, {
                 chat_id: chatId,
                 message_id: messageId
+            }, {
+                proxy: false,
+                httpAgent: null,
+                httpsAgent: null
             });
         } catch (error) {
             console.error('[TelegramBot] Ошибка удаления сообщения:', error.message);
@@ -133,6 +148,10 @@ class InvoiceTelegramBot {
             await axios.post(`${this.apiUrl}/answerCallbackQuery`, {
                 callback_query_id: queryId,
                 text: text
+            }, {
+                proxy: false,
+                httpAgent: null,
+                httpsAgent: null
             });
         } catch (error) {
             console.error('[TelegramBot] Ошибка ответа на callback:', error.message);
