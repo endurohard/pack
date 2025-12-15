@@ -7,8 +7,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 class InvoiceTelegramBot {
-    constructor(db, whatsappManager, pdfGenerator) {
-        this.db = db;
+    constructor(invoiceDb, clientsDb, warehouseDb, whatsappManager, pdfGenerator) {
+        this.invoiceDb = invoiceDb;
+        this.clientsDb = clientsDb;
+        this.warehouseDb = warehouseDb;
         this.whatsappManager = whatsappManager;
         this.pdfGenerator = pdfGenerator;
         this.config = null;
@@ -206,8 +208,12 @@ class InvoiceTelegramBot {
 
     // Главное меню
     showMainMenu(chatId) {
+        // Определяем URL для Mini App (используем внешний адрес, если доступен)
+        const webAppUrl = process.env.WEB_APP_URL || 'http://176.98.155.17:10801';
+
         const keyboard = {
             inline_keyboard: [
+                [{ text: '🌐 Открыть веб-интерфейс', web_app: { url: webAppUrl } }],
                 [{ text: '➕ Создать счет', callback_data: 'create_invoice' }],
                 [{ text: '📋 Список счетов', callback_data: 'list_invoices' }],
                 [{ text: '💰 Неоплаченные счета', callback_data: 'unpaid_invoices' }],
@@ -302,7 +308,7 @@ class InvoiceTelegramBot {
 
     // Показать список клиентов
     showClientSelection(chatId) {
-        const clients = this.db.getClients();
+        const clients = this.clientsDb.getAllClients();
 
         if (clients.length === 0) {
             this.sendMessage(chatId, '❌ Клиенты не найдены. Добавьте клиента через веб-интерфейс.');
@@ -336,7 +342,7 @@ class InvoiceTelegramBot {
         const session = this.userSessions.get(userId);
         if (!session) return;
 
-        const client = this.db.getClientById(clientId);
+        const client = this.clientsDb.getClientById(clientId);
         if (!client) {
             this.sendMessage(chatId, '❌ Клиент не найден');
             return;
@@ -351,7 +357,7 @@ class InvoiceTelegramBot {
 
     // Показать список товаров
     showProductSelection(chatId, userId) {
-        const products = this.db.getAllProducts();
+        const products = this.warehouseDb.getAllProducts();
         const session = this.userSessions.get(userId);
 
         if (products.length === 0) {
@@ -400,7 +406,7 @@ class InvoiceTelegramBot {
         const session = this.userSessions.get(userId);
         if (!session) return;
 
-        const product = this.db.getProductById(productId);
+        const product = this.warehouseDb.getProductById(productId);
         if (!product) {
             this.sendMessage(chatId, '❌ Товар не найден');
             return;
@@ -434,7 +440,7 @@ class InvoiceTelegramBot {
                 sum + (item.price * item.quantity), 0
             );
 
-            const invoice = this.db.createInvoice({
+            const invoice = this.invoiceDb.createInvoice({
                 client: session.client.name,
                 clientPhone: session.client.phone,
                 amount: totalAmount,
@@ -482,7 +488,7 @@ class InvoiceTelegramBot {
 
     // Показать список счетов
     showInvoicesList(chatId, messageId = null) {
-        const invoices = this.db.getInvoices();
+        const invoices = this.invoiceDb.getAllInvoices();
 
         if (invoices.length === 0) {
             const msg = '📋 Счета не найдены';
@@ -526,7 +532,7 @@ class InvoiceTelegramBot {
 
     // Показать неоплаченные счета
     showUnpaidInvoices(chatId, messageId = null) {
-        const invoices = this.db.getInvoices();
+        const invoices = this.invoiceDb.getAllInvoices();
         const unpaid = invoices.filter(inv => {
             const paidAmount = inv.paidAmount || 0;
             return !inv.paid && paidAmount === 0;
@@ -568,7 +574,7 @@ class InvoiceTelegramBot {
 
     // Показать детали счета
     showInvoiceDetails(chatId, invoiceId, messageId = null) {
-        const invoice = this.db.getInvoiceById(invoiceId);
+        const invoice = this.invoiceDb.getInvoiceById(invoiceId);
 
         if (!invoice) {
             this.sendMessage(chatId, '❌ Счет не найден');
@@ -629,14 +635,14 @@ class InvoiceTelegramBot {
     // Отметить счет как оплаченный
     async markInvoiceAsPaid(chatId, invoiceId) {
         try {
-            const invoice = this.db.getInvoiceById(invoiceId);
+            const invoice = this.invoiceDb.getInvoiceById(invoiceId);
 
             if (!invoice) {
                 this.sendMessage(chatId, '❌ Счет не найден');
                 return;
             }
 
-            this.db.updateInvoice(invoiceId, {
+            this.invoiceDb.updateInvoice(invoiceId, {
                 paid: true,
                 paidAmount: invoice.amount
             });
@@ -659,7 +665,7 @@ class InvoiceTelegramBot {
     // Отправить счет в WhatsApp
     async sendInvoiceToWhatsApp(chatId, invoiceId) {
         try {
-            const invoice = this.db.getInvoiceById(invoiceId);
+            const invoice = this.invoiceDb.getInvoiceById(invoiceId);
 
             if (!invoice) {
                 this.sendMessage(chatId, '❌ Счет не найден');
@@ -689,7 +695,7 @@ class InvoiceTelegramBot {
 
             if (result.success) {
                 // Обновляем дату отправки
-                this.db.updateInvoice(invoiceId, {
+                this.invoiceDb.updateInvoice(invoiceId, {
                     lastWhatsAppSent: new Date().toISOString()
                 });
 
@@ -711,7 +717,7 @@ class InvoiceTelegramBot {
 
     // Показать статистику
     showStatistics(chatId, messageId = null) {
-        const invoices = this.db.getInvoices();
+        const invoices = this.invoiceDb.getAllInvoices();
 
         const totalCount = invoices.length;
         const paidCount = invoices.filter(inv => {

@@ -1764,7 +1764,7 @@ async function initWhatsApp() {
   try {
     console.log('');
     console.log('🤖 Инициализация Telegram бота...');
-    telegramBot = new InvoiceTelegramBot(db, whatsappManager, invoiceService);
+    telegramBot = new InvoiceTelegramBot(db, clientsDb, warehouseDb, whatsappManager, invoiceService);
   } catch (error) {
     console.error('❌ Ошибка инициализации Telegram бота:', error.message);
   }
