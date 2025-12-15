@@ -208,12 +208,9 @@ class InvoiceTelegramBot {
 
     // Главное меню
     showMainMenu(chatId) {
-        // Определяем URL для Mini App (используем внешний адрес, если доступен)
-        const webAppUrl = process.env.WEB_APP_URL || 'http://176.98.155.17:10801';
-
         const keyboard = {
             inline_keyboard: [
-                [{ text: '🌐 Открыть веб-интерфейс', web_app: { url: webAppUrl } }],
+                [{ text: '🌐 Открыть веб-интерфейс', url: 'http://176.98.155.17:10801' }],
                 [{ text: '➕ Создать счет', callback_data: 'create_invoice' }],
                 [{ text: '📋 Список счетов', callback_data: 'list_invoices' }],
                 [{ text: '💰 Неоплаченные счета', callback_data: 'unpaid_invoices' }],
