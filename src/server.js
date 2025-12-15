@@ -1755,12 +1755,17 @@ async function initWhatsApp() {
     // Запускаем сервис напоминаний об оплате
     paymentReminderService = new PaymentReminderService(whatsappManager);
     paymentReminderService.start();
-
-    // Запускаем Telegram бота
-    telegramBot = new InvoiceTelegramBot(invoiceDb, whatsappManager, invoiceService);
-    console.log('[TelegramBot] Telegram бот инициализирован');
   } catch (error) {
     console.error('❌ Ошибка инициализации WhatsApp:', error.message);
     console.error('   WhatsApp отправка будет недоступна');
+  }
+
+  // Запускаем Telegram бота (независимо от состояния WhatsApp)
+  try {
+    console.log('');
+    console.log('🤖 Инициализация Telegram бота...');
+    telegramBot = new InvoiceTelegramBot(db, whatsappManager, invoiceService);
+  } catch (error) {
+    console.error('❌ Ошибка инициализации Telegram бота:', error.message);
   }
 }
