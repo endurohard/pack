@@ -85,7 +85,7 @@
 
         .item-row {
             display: grid;
-            grid-template-columns: 2fr 1fr 1fr 1fr auto;
+            grid-template-columns: 2fr 1fr 1fr 1fr 1fr auto;
             gap: 10px;
             margin-bottom: 15px;
             align-items: end;
@@ -437,6 +437,10 @@
                                 <input type="number" class="item-price" required min="0.01" step="0.01" value="1000" oninput="calculateTotal()">
                             </div>
                             <div>
+                                <label>Себестоимость</label>
+                                <input type="number" class="item-cost" min="0" step="0.01" value="0" placeholder="Расход">
+                            </div>
+                            <div>
                                 <label>&nbsp;</label>
                                 <button type="button" class="btn btn-danger" onclick="removeItem(this)">✕</button>
                             </div>
@@ -574,6 +578,10 @@
     </div>
 
     <script>
+        console.log('=== НАЧАЛО СКРИПТА ===');
+        console.log('URL:', window.location.href);
+        console.log('Search params:', window.location.search);
+
         let currentPdfUrl = '';
         let currentInputRow = null; // Для хранения текущего input элемента при создании товара
         let currentFilename = '';
@@ -699,6 +707,10 @@
                     <input type="number" class="item-price" required min="0.01" step="0.01" value="1000" oninput="calculateTotal()">
                 </div>
                 <div>
+                    <label>Себестоимость</label>
+                    <input type="number" class="item-cost" min="0" step="0.01" value="0" placeholder="Расход">
+                </div>
+                <div>
                     <label>&nbsp;</label>
                     <button type="button" class="btn btn-danger" onclick="removeItem(this)">✕</button>
                 </div>
@@ -728,6 +740,10 @@
                 <div>
                     <label>Цена</label>
                     <input type="number" class="item-price" required min="0.01" step="0.01" value="${item.price || 1000}" oninput="calculateTotal()">
+                </div>
+                <div>
+                    <label>Себестоимость</label>
+                    <input type="number" class="item-cost" min="0" step="0.01" value="${item.cost || 0}" placeholder="Расход">
                 </div>
                 <div>
                     <label>&nbsp;</label>
@@ -897,10 +913,19 @@
                 phone = '7' + phone;
             }
 
-            // Загружаем шаблон сообщения из настроек
-            const settings = JSON.parse(localStorage.getItem('whatsappMessageSettings') || '{}');
-            const defaultMessage = 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.';
-            const messageTemplate = settings.greeting || defaultMessage;
+            // Загружаем шаблон сообщения из базы данных через API
+            let messageTemplate = 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.';
+            try {
+                const settingsResponse = await fetch('/api/whatsapp/settings');
+                if (settingsResponse.ok) {
+                    const settingsData = await settingsResponse.json();
+                    if (settingsData.success && settingsData.settings && settingsData.settings.greeting) {
+                        messageTemplate = settingsData.settings.greeting;
+                    }
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки настроек WhatsApp:', error);
+            }
 
             // Формируем сообщение, заменяя {номер} на фактический номер счета
             const message = messageTemplate.replace('{номер}', currentInvoiceNumber);
@@ -947,7 +972,7 @@
         }
 
         // Старая функция для открытия WhatsApp Web в iframe (оставляем на случай fallback)
-        function sendWhatsAppOld() {
+        async function sendWhatsAppOld() {
             if (!currentClientPhone) {
                 alert('Не указан номер телефона клиента');
                 return;
@@ -966,10 +991,19 @@
                 phone = '7' + phone;
             }
 
-            // Загружаем шаблон сообщения из настроек
-            const settings = JSON.parse(localStorage.getItem('whatsappMessageSettings') || '{}');
-            const defaultMessage = 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.';
-            const messageTemplate = settings.greeting || defaultMessage;
+            // Загружаем шаблон сообщения из базы данных через API
+            let messageTemplate = 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.';
+            try {
+                const settingsResponse = await fetch('/api/whatsapp/settings');
+                if (settingsResponse.ok) {
+                    const settingsData = await settingsResponse.json();
+                    if (settingsData.success && settingsData.settings && settingsData.settings.greeting) {
+                        messageTemplate = settingsData.settings.greeting;
+                    }
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки настроек WhatsApp:', error);
+            }
 
             // Формируем сообщение, заменяя {номер} на фактический номер счета
             const message = messageTemplate.replace('{номер}', currentInvoiceNumber);
@@ -1249,6 +1283,7 @@
                 const row = input.closest('.item-row');
                 row.querySelector('.item-unit').value = product.unit;
                 row.querySelector('.item-price').value = product.sellingPrice;
+                row.querySelector('.item-cost').value = product.costPrice || 0;
             }
         }
 
@@ -1345,12 +1380,21 @@
         // Функция для загрузки данных счета для редактирования
         async function loadInvoiceForEdit(invoiceId) {
             try {
+                console.log('[Edit] Загружаю счет для редактирования:', invoiceId);
+
+                // Показываем индикатор загрузки
+                document.getElementById('loading').style.display = 'block';
+
                 const response = await fetch(`/api/invoices/${invoiceId}`);
                 const result = await response.json();
+
+                console.log('[Edit] Получен ответ:', result);
 
                 if (response.ok && result.invoice) {
                     const invoice = result.invoice;
                     editingInvoiceId = invoiceId;
+
+                    console.log('[Edit] Устанавливаю editingInvoiceId:', editingInvoiceId);
 
                     // Изменяем заголовок
                     document.querySelector('.header h1').textContent = `✏️ Редактирование счета №${invoice.invoiceNumber}`;
@@ -1389,11 +1433,20 @@
 
                     // Изменяем текст кнопки
                     document.querySelector('button[type="submit"]').textContent = '💾 Сохранить изменения';
+
+                    // Скрываем индикатор загрузки
+                    document.getElementById('loading').style.display = 'none';
+
+                    console.log('[Edit] Счет успешно загружен для редактирования');
                 } else {
+                    document.getElementById('loading').style.display = 'none';
                     alert('Ошибка загрузки счета');
+                    console.error('[Edit] Ошибка: счет не найден в ответе');
                 }
             } catch (error) {
+                document.getElementById('loading').style.display = 'none';
                 alert('Ошибка загрузки счета: ' + error.message);
+                console.error('[Edit] Ошибка загрузки:', error);
             }
         }
 
@@ -1401,10 +1454,16 @@
         const urlParams = new URLSearchParams(window.location.search);
         const editId = urlParams.get('edit');
 
+        console.log('[Init] URL params:', window.location.search);
+        console.log('[Init] editId:', editId);
+
         // Загружаем текущий номер счета (без инкремента)
         async function loadCurrentInvoiceNumber() {
             // Если редактируем, не меняем номер
-            if (editId) return;
+            if (editId) {
+                console.log('[Init] Режим редактирования - пропускаем загрузку нового номера');
+                return;
+            }
 
             try {
                 const response = await fetch('/api/invoice-counter/current');
@@ -1415,24 +1474,49 @@
             }
         }
 
-        // Добавляем делегированный обработчик событий для всех полей количества и цены
-        document.getElementById('itemsContainer').addEventListener('input', function(e) {
-            if (e.target.classList.contains('item-quantity') || e.target.classList.contains('item-price')) {
-                calculateTotal();
+        // Инициализация при загрузке DOM
+        function initializePage() {
+            console.log('[Init] Начинаем инициализацию страницы');
+            console.log('[Init] editId:', editId);
+            console.log('[Init] Document ready state:', document.readyState);
+
+            // Проверяем, что форма существует
+            const form = document.getElementById('invoiceForm');
+            if (!form) {
+                console.error('[Init] ОШИБКА: форма invoiceForm не найдена!');
+                return;
             }
-        });
 
-        // Загружаем данные при старте
-        loadWarehouseProducts();
-        loadClients();
-        loadCurrentInvoiceNumber();
-        calculateTotal(); // Инициализируем отображение суммы
+            // Добавляем делегированный обработчик событий для всех полей количества и цены
+            const itemsContainer = document.getElementById('itemsContainer');
+            if (itemsContainer) {
+                itemsContainer.addEventListener('input', function(e) {
+                    if (e.target.classList.contains('item-quantity') || e.target.classList.contains('item-price')) {
+                        calculateTotal();
+                    }
+                });
+            } else {
+                console.error('[Init] ОШИБКА: itemsContainer не найден!');
+            }
 
-        if (editId) {
-            loadInvoiceForEdit(editId);
-        }
+            // Загружаем данные при старте
+            loadWarehouseProducts();
+            loadClients();
+            loadCurrentInvoiceNumber();
+            calculateTotal(); // Инициализируем отображение суммы
 
-        document.getElementById('invoiceForm').addEventListener('submit', async (e) => {
+            if (editId) {
+                console.log('[Init] Вызываем loadInvoiceForEdit с ID:', editId);
+                // Небольшая задержка для гарантии загрузки всех данных
+                setTimeout(() => {
+                    loadInvoiceForEdit(editId);
+                }, 100);
+            } else {
+                console.log('[Init] Режим создания нового счета');
+            }
+
+            // Обработчик отправки формы
+            form.addEventListener('submit', async (e) => {
             e.preventDefault();
 
             // Собираем данные формы
@@ -1442,7 +1526,8 @@
                 const unit = row.querySelector('.item-unit').value;
                 const quantity = parseFloat(row.querySelector('.item-quantity').value);
                 const price = parseFloat(row.querySelector('.item-price').value);
-                items.push({ name, unit, quantity, price });
+                const cost = parseFloat(row.querySelector('.item-cost').value) || 0;
+                items.push({ name, unit, quantity, price, cost });
             });
 
             const data = {
@@ -1480,6 +1565,11 @@
                 const isEditing = editingInvoiceId !== null;
                 const method = isEditing ? 'PUT' : 'POST';
                 const url = isEditing ? `/api/invoices/${editingInvoiceId}` : '/api/invoice';
+
+                console.log('[Submit] Режим:', isEditing ? 'Редактирование' : 'Создание');
+                console.log('[Submit] editingInvoiceId:', editingInvoiceId);
+                console.log('[Submit] Method:', method);
+                console.log('[Submit] URL:', url);
 
                 const response = await fetch(url, {
                     method: method,
@@ -1544,7 +1634,18 @@
             } finally {
                 document.getElementById('loading').style.display = 'none';
             }
-        });
+            });
+        }
+
+        // Вызываем инициализацию когда DOM готов
+        if (document.readyState === 'loading') {
+            console.log('[Script] Документ еще загружается, ждем DOMContentLoaded');
+            document.addEventListener('DOMContentLoaded', initializePage);
+        } else {
+            console.log('[Script] Документ уже загружен, инициализируем сразу');
+            // Небольшая задержка, чтобы другие скрипты успели загрузиться
+            setTimeout(initializePage, 50);
+        }
     </script>
     <script src="/common-navigation.js"></script>
     <script src="/auth.js"></script>

@@ -199,6 +199,7 @@ app.post('/api/invoice', async (req, res) => {
         unit: item.unit,
         quantity: item.quantity,
         price: item.price,
+        cost: item.cost || 0,
         amount: item.quantity * item.price
       })),
       payment
@@ -276,6 +277,23 @@ app.post('/api/invoice', async (req, res) => {
 
     // Инкрементируем счетчик ТОЛЬКО после успешного сохранения
     invoiceCounter.getNextInvoiceNumber();
+
+    // Автоматически создаем расходы для товаров с себестоимостью
+    const itemsWithCost = invoiceData.items.filter(item => item.cost && item.cost > 0);
+    if (itemsWithCost.length > 0) {
+      const expenseDate = new Date().toISOString().split('T')[0]; // Текущая дата
+      itemsWithCost.forEach(item => {
+        const totalCost = item.cost * item.quantity;
+        const expense = {
+          date: expenseDate,
+          category: 'Себестоимость товара',
+          description: `${item.name} (${item.quantity} ${item.unit}) - Счет №${invoiceNumber}`,
+          amount: totalCost
+        };
+        db.addExpense(savedInvoice.id, expense);
+        console.log(`✅ Автоматически создан расход: ${expense.description} - ${totalCost} ₽`);
+      });
+    }
 
     res.json({
       success: true,
@@ -438,14 +456,17 @@ app.get('/api/invoices/paid/list', (req, res) => {
     const { startDate, endDate } = req.query;
     const allInvoices = db.getAllInvoices();
 
-    // Фильтруем только оплаченные счета
-    let paidInvoices = allInvoices.filter(invoice => invoice.paid);
+    // Фильтруем оплаченные и частично оплаченные счета
+    let paidInvoices = allInvoices.filter(invoice => {
+      // Включаем полностью оплаченные или частично оплаченные счета
+      return invoice.paid || (invoice.paidAmount && invoice.paidAmount > 0);
+    });
 
-    // Фильтруем по датам если указаны (используем дату оплаты - paidAt, а не дату создания)
+    // Фильтруем по датам если указаны (используем дату оплаты - paidAt или updatedAt, а не дату создания)
     if (startDate || endDate) {
       paidInvoices = paidInvoices.filter(invoice => {
         // Используем дату оплаты для фильтрации (когда деньги пришли в кассу)
-        const paymentDate = new Date(invoice.paidAt);
+        const paymentDate = new Date(invoice.paidAt || invoice.updatedAt || invoice.createdAt);
 
         // Убираем время, сравниваем только даты
         paymentDate.setHours(0, 0, 0, 0);
@@ -467,12 +488,24 @@ app.get('/api/invoices/paid/list', (req, res) => {
       });
     }
 
-    // Вычисляем общую сумму прихода
-    const totalIncome = paidInvoices.reduce((sum, invoice) => sum + invoice.amount, 0);
+    // Вычисляем общую сумму прихода (учитываем частичную оплату)
+    const totalIncome = paidInvoices.reduce((sum, invoice) => {
+      // Используем paidAmount если он есть, иначе полную сумму
+      const income = invoice.paidAmount || invoice.amount;
+      return sum + income;
+    }, 0);
+
+    // Вычисляем общую сумму расходов по всем оплаченным счетам
+    const totalExpenses = paidInvoices.reduce((sum, invoice) => {
+      const invoiceExpenses = (invoice.expenses || []).reduce((expSum, expense) => expSum + expense.amount, 0);
+      return sum + invoiceExpenses;
+    }, 0);
 
     res.json({
       invoices: paidInvoices,
       totalIncome,
+      totalExpenses,
+      totalProfit: totalIncome - totalExpenses,
       count: paidInvoices.length
     });
   } catch (error) {
@@ -502,6 +535,7 @@ app.put('/api/invoices/:id', async (req, res) => {
         unit: item.unit,
         quantity: item.quantity,
         price: item.price,
+        cost: item.cost || 0,
         amount: item.quantity * item.price
       })),
       payment
@@ -676,7 +710,7 @@ app.put('/api/invoices/:id/payment', async (req, res) => {
 });
 
 // Обновить частичную оплату
-app.put('/api/invoices/:id/partial-payment', (req, res) => {
+app.put('/api/invoices/:id/partial-payment', async (req, res) => {
   try {
     const { id } = req.params;
     const { paidAmount } = req.body;
@@ -686,16 +720,110 @@ app.put('/api/invoices/:id/partial-payment', (req, res) => {
       return res.status(404).json({ error: 'Счет не найден' });
     }
 
+    // Запоминаем был ли счет неоплачен до обновления
+    const wasUnpaid = !invoice.paid && (invoice.paidAmount || 0) < invoice.amount;
+    const willBeFullyPaid = paidAmount >= invoice.amount;
+
     // Обновляем сумму частичной оплаты
     const updatedInvoice = db.updateInvoice(id, {
       paidAmount: paidAmount,
       // Если оплачена полная сумма или больше - помечаем как оплаченный
-      paid: paidAmount >= invoice.amount
+      paid: willBeFullyPaid,
+      // Устанавливаем дату оплаты для корректной работы аналитики
+      paidAt: new Date().toISOString()
     });
 
     console.log(`[PartialPayment] Счет №${invoice.invoiceNumber}: оплачено ${paidAmount} ₽ из ${invoice.amount} ₽`);
 
-    res.json(updatedInvoice);
+    // Если счет полностью оплачен И включен абонемент - автоматически создаем новый на следующий месяц
+    let newInvoice = null;
+    if (willBeFullyPaid && wasUnpaid && invoice.isRecurring) {
+      try {
+        console.log(`[PartialPayment] Счет №${invoice.invoiceNumber} полностью оплачен (абонемент), создаем новый счет на следующий месяц...`);
+
+        // Получаем новый номер счета
+        const newInvoiceNumber = invoiceCounter.getNextInvoiceNumber();
+
+        // Подготавливаем данные для нового счета
+        const invoiceData = {
+          invoiceNumber: newInvoiceNumber,
+          clientName: invoice.client,
+          isRecurring: invoice.isRecurring || false,
+          items: invoice.items,
+          payment: invoice.payment
+        };
+
+        // Добавляем скидку, если была
+        if (invoice.discount) {
+          invoiceData.discount = invoice.discount;
+        }
+
+        // Вычисляем сумму
+        let totalAmount = invoiceData.items.reduce((sum, item) => sum + item.amount, 0);
+        if (invoiceData.discount) {
+          if (invoiceData.discount.type === 'percent') {
+            totalAmount -= totalAmount * (invoiceData.discount.value / 100);
+          } else if (invoiceData.discount.type === 'fixed') {
+            totalAmount -= invoiceData.discount.value;
+          }
+        }
+
+        // Вычисляем дату следующей отправки (текущая дата + 1 месяц, то же число)
+        const nextSendDate = new Date();
+        nextSendDate.setMonth(nextSendDate.getMonth() + 1);
+
+        // Дата создания нового счета = дата следующей отправки (следующий месяц)
+        const nextMonthDate = new Date(nextSendDate);
+
+        // Генерируем имя файла с датой следующего месяца
+        const clientNameClean = sanitizeFilename(invoice.client);
+        const dateStr = nextMonthDate.toISOString().split('T')[0];
+        const filename = `Счет_${newInvoiceNumber}_${clientNameClean}_${dateStr}.pdf`;
+
+        // Генерируем PDF
+        await invoiceService.createInvoice(invoiceData, filename);
+
+        // Сохраняем в базу данных с включенной авторассылкой
+        newInvoice = db.addInvoice({
+          invoiceNumber: newInvoiceNumber,
+          filename,
+          amount: totalAmount,
+          items: invoiceData.items,
+          discount: invoiceData.discount,
+          client: invoice.client,
+          clientPhone: invoice.clientPhone || '',
+          isRecurring: invoice.isRecurring || false,
+          payment: invoiceData.payment,
+          yandexPath: null,
+          publicUrl: null,
+          autoSendEnabled: true,  // Включаем авторассылку
+          nextSendDate: nextSendDate.toISOString(),  // Устанавливаем дату на следующий месяц
+          createdAt: nextMonthDate.toISOString()  // Устанавливаем дату создания на следующий месяц
+        });
+
+        // ВАЖНО: Отключаем авторассылку у оплаченного счета, чтобы не было дублирования
+        if (invoice.autoSendEnabled) {
+          db.setAutoSend(invoice.id, false, null);
+          console.log(`[PartialPayment] Авторассылка отключена для оплаченного счета №${invoice.invoiceNumber}`);
+        }
+
+        console.log(`[PartialPayment] ✅ Создан новый счет №${newInvoiceNumber} с авторассылкой на ${nextSendDate.toLocaleDateString('ru-RU')}`);
+      } catch (error) {
+        console.error(`[PartialPayment] Ошибка создания нового счета:`, error);
+        // Продолжаем выполнение, даже если не удалось создать новый счет
+      }
+    }
+
+    if (newInvoice) {
+      res.json({
+        success: true,
+        invoice: updatedInvoice,
+        newInvoice,
+        message: `Счет оплачен! Автоматически создан новый счет №${newInvoice.invoiceNumber} на следующий месяц`
+      });
+    } else {
+      res.json(updatedInvoice);
+    }
   } catch (error) {
     console.error('Ошибка обновления частичной оплаты:', error);
     res.status(500).json({ error: error.message });
@@ -1764,7 +1892,7 @@ async function initWhatsApp() {
   try {
     console.log('');
     console.log('🤖 Инициализация Telegram бота...');
-    telegramBot = new InvoiceTelegramBot(db, clientsDb, warehouseDb, whatsappManager, invoiceService);
+    telegramBot = new InvoiceTelegramBot(db, clientsDb, warehouseDb, whatsappManager, invoiceService, paymentReminderService);
   } catch (error) {
     console.error('❌ Ошибка инициализации Telegram бота:', error.message);
   }
