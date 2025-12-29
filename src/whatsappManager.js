@@ -117,6 +117,66 @@ class WhatsAppManager {
       // Ждем появления чата
       console.log('⏳ Ожидание загрузки чата...');
 
+      // Даем время на появление модальных окон (ошибок или загрузки чата)
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Проверяем наличие ошибки подключения к WhatsApp
+      try {
+        const connectionError = await this.page.evaluate(() => {
+          const text = document.body.textContent || '';
+          return text.includes('Подключение к WhatsApp') ||
+                 text.includes('Connecting to WhatsApp') ||
+                 text.includes('Телефон не подключен') ||
+                 text.includes('Phone not connected');
+        });
+
+        console.log(`  Ошибка подключения обнаружена: ${connectionError}`);
+
+        if (connectionError) {
+          console.log('⚠️  Обнаружена ошибка подключения WhatsApp, ждем восстановления...');
+          // Ждем исчезновения ошибки подключения (до 30 секунд)
+          await this.page.waitForFunction(
+            () => {
+              const text = document.body.textContent || '';
+              return !text.includes('Подключение к WhatsApp') &&
+                     !text.includes('Connecting to WhatsApp') &&
+                     !text.includes('Телефон не подключен') &&
+                     !text.includes('Phone not connected');
+            },
+            { timeout: 30000 }
+          ).catch(() => {
+            throw new Error('WhatsApp потерял соединение. Проверьте подключение к интернету');
+          });
+          console.log('✅ Соединение восстановлено');
+          // Даем время на стабилизацию
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      } catch (e) {
+        console.error('❌ Ошибка проверки соединения:', e.message);
+        await this.page.screenshot({ path: '/tmp/whatsapp_connection_error.png' });
+        throw e;
+      }
+
+      // Проверяем наличие ошибки "Номер телефона недействителен"
+      try {
+        const invalidPhoneError = await this.page.evaluate(() => {
+          const text = document.body.textContent || '';
+          return text.includes('Номер телефона') && text.includes('недействителен') ||
+                 text.includes('phone number') && text.includes('invalid');
+        });
+
+        if (invalidPhoneError) {
+          console.error('❌ Номер телефона недействителен');
+          await this.page.screenshot({ path: '/tmp/whatsapp_invalid_phone.png' });
+          throw new Error('Номер телефона недействителен. Проверьте правильность номера.');
+        }
+      } catch (e) {
+        if (e.message.includes('Номер телефона недействителен')) {
+          throw e;
+        }
+        // Другие ошибки игнорируем
+      }
+
       // Сначала ждем исчезновения модального окна "Начало чата", если оно есть
       try {
         const chatStartModal = await this.page.waitForFunction(
@@ -298,6 +358,66 @@ class WhatsAppManager {
 
       // Ждем появления чата
       console.log('⏳ Ожидание загрузки чата...');
+
+      // Даем время на появление модальных окон (ошибок или загрузки чата)
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Проверяем наличие ошибки подключения к WhatsApp
+      try {
+        const connectionError = await this.page.evaluate(() => {
+          const text = document.body.textContent || '';
+          return text.includes('Подключение к WhatsApp') ||
+                 text.includes('Connecting to WhatsApp') ||
+                 text.includes('Телефон не подключен') ||
+                 text.includes('Phone not connected');
+        });
+
+        console.log(`  Ошибка подключения обнаружена: ${connectionError}`);
+
+        if (connectionError) {
+          console.log('⚠️  Обнаружена ошибка подключения WhatsApp, ждем восстановления...');
+          // Ждем исчезновения ошибки подключения (до 30 секунд)
+          await this.page.waitForFunction(
+            () => {
+              const text = document.body.textContent || '';
+              return !text.includes('Подключение к WhatsApp') &&
+                     !text.includes('Connecting to WhatsApp') &&
+                     !text.includes('Телефон не подключен') &&
+                     !text.includes('Phone not connected');
+            },
+            { timeout: 30000 }
+          ).catch(() => {
+            throw new Error('WhatsApp потерял соединение. Проверьте подключение к интернету');
+          });
+          console.log('✅ Соединение восстановлено');
+          // Даем время на стабилизацию
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      } catch (e) {
+        console.error('❌ Ошибка проверки соединения:', e.message);
+        await this.page.screenshot({ path: '/tmp/whatsapp_connection_error.png' });
+        throw e;
+      }
+
+      // Проверяем наличие ошибки "Номер телефона недействителен"
+      try {
+        const invalidPhoneError = await this.page.evaluate(() => {
+          const text = document.body.textContent || '';
+          return text.includes('Номер телефона') && text.includes('недействителен') ||
+                 text.includes('phone number') && text.includes('invalid');
+        });
+
+        if (invalidPhoneError) {
+          console.error('❌ Номер телефона недействителен');
+          await this.page.screenshot({ path: '/tmp/whatsapp_invalid_phone.png' });
+          throw new Error('Номер телефона недействителен. Проверьте правильность номера.');
+        }
+      } catch (e) {
+        if (e.message.includes('Номер телефона недействителен')) {
+          throw e;
+        }
+        // Другие ошибки игнорируем
+      }
 
       // Сначала ждем исчезновения модального окна "Начало чата", если оно есть
       try {
