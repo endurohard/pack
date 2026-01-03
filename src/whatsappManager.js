@@ -2,7 +2,10 @@ import puppeteer from 'puppeteer';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 
+const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -18,9 +21,66 @@ class WhatsAppManager {
     }
   }
 
+  async cleanupOldBrowserProcesses() {
+    try {
+      console.log('🔍 Проверка зависших процессов Chrome...');
+
+      // Проверяем, есть ли Singleton файлы (признак работающего браузера)
+      const singletonFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+      let hasSingletonFiles = false;
+
+      for (const file of singletonFiles) {
+        const filePath = path.join(this.sessionDir, file);
+        if (fs.existsSync(filePath)) {
+          hasSingletonFiles = true;
+          console.log(`⚠️  Найден файл блокировки: ${file}`);
+        }
+      }
+
+      if (hasSingletonFiles) {
+        console.log('🧹 Очистка зависших процессов Chrome...');
+
+        // Завершаем все процессы Chrome
+        try {
+          await execAsync('pkill -9 chrome 2>/dev/null || true');
+          await execAsync('pkill -9 chromium 2>/dev/null || true');
+          console.log('✅ Процессы Chrome завершены');
+        } catch (e) {
+          // Игнорируем ошибки, если процессов нет
+        }
+
+        // Ждем завершения процессов
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Удаляем Singleton файлы
+        for (const file of singletonFiles) {
+          const filePath = path.join(this.sessionDir, file);
+          try {
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+              console.log(`🗑️  Удален ${file}`);
+            }
+          } catch (e) {
+            console.error(`⚠️  Не удалось удалить ${file}:`, e.message);
+          }
+        }
+
+        console.log('✅ Очистка завершена');
+      } else {
+        console.log('✅ Зависших процессов не обнаружено');
+      }
+    } catch (error) {
+      console.error('⚠️  Ошибка очистки процессов:', error.message);
+      // Не бросаем ошибку, продолжаем инициализацию
+    }
+  }
+
   async initialize() {
     try {
       console.log('📱 Инициализация WhatsApp Web через Puppeteer...');
+
+      // Проверяем и очищаем зависшие процессы Chrome перед запуском
+      await this.cleanupOldBrowserProcesses();
 
       this.browser = await puppeteer.launch({
         headless: false,
@@ -80,6 +140,25 @@ class WhatsAppManager {
       console.error('❌ Ошибка инициализации WhatsApp:', error.message);
       throw error;
     }
+  }
+
+  async handleTimeoutError(error, operation) {
+    if (error.message && (
+      error.message.includes('timed out') ||
+      error.message.includes('timeout') ||
+      error.message.includes('Navigation failed')
+    )) {
+      console.log('⚠️  Обнаружен таймаут, попытка перезапуска браузера...');
+      try {
+        await this.restart();
+        console.log('✅ Браузер перезапущен успешно');
+        return true;
+      } catch (restartError) {
+        console.error('❌ Не удалось перезапустить браузер:', restartError.message);
+        return false;
+      }
+    }
+    return false;
   }
 
   async sendMessage(phone, message) {
@@ -300,6 +379,13 @@ class WhatsAppManager {
       return { success: true, message: 'Сообщение отправлено' };
     } catch (error) {
       console.error('❌ Ошибка отправки сообщения:', error.message);
+
+      // Пытаемся обработать таймаут и перезапустить браузер
+      const restarted = await this.handleTimeoutError(error);
+      if (restarted) {
+        throw new Error('Браузер был перезапущен из-за таймаута. Повторите попытку через минуту.');
+      }
+
       throw error;
     }
   }
@@ -832,6 +918,13 @@ class WhatsAppManager {
       return { success: true, message: 'Файл отправлен' };
     } catch (error) {
       console.error('❌ Ошибка отправки файла:', error.message);
+
+      // Пытаемся обработать таймаут и перезапустить браузер
+      const restarted = await this.handleTimeoutError(error);
+      if (restarted) {
+        throw new Error('Браузер был перезапущен из-за таймаута. Повторите попытку через минуту.');
+      }
+
       // Сохраняем скриншот для отладки
       try {
         await this.page.screenshot({ path: '/tmp/whatsapp_send_error.png' });
@@ -847,7 +940,23 @@ class WhatsAppManager {
     if (!this.page) {
       throw new Error('Страница не инициализирована');
     }
-    return await this.page.screenshot({ fullPage: false });
+    try {
+      // Добавляем таймаут на создание скриншота
+      const screenshot = await Promise.race([
+        this.page.screenshot({
+          fullPage: false,
+          type: 'png'
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Таймаут создания скриншота')), 10000)
+        )
+      ]);
+      return screenshot;
+    } catch (error) {
+      console.error('❌ Ошибка создания скриншота:', error.message);
+      // Возвращаем пустое изображение или бросаем ошибку
+      throw new Error('Не удалось создать скриншот: ' + error.message);
+    }
   }
 
   getQRCode() {

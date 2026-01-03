@@ -1,0 +1,20 @@
+[Unit]
+Description=WhatsApp Monitor Service
+After=network.target
+
+[Service]
+Type=simple
+User=it
+WorkingDirectory=/home/it/pack
+ExecStart=/home/it/pack/whatsapp-monitor.sh start
+Restart=always
+RestartSec=60
+StandardOutput=append:/home/it/pack/whatsapp-monitor.log
+StandardError=append:/home/it/pack/whatsapp-monitor.log
+
+# Переменные окружения
+Environment="DISPLAY=:99"
+Environment="NODE_ENV=production"
+
+[Install]
+WantedBy=multi-user.target
