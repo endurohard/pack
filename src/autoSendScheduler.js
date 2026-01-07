@@ -53,25 +53,27 @@ class AutoSendScheduler {
   }
 
   /**
-   * Проверить, наступило ли время рассылки
+   * Проверить, наступило ли время рассылки для конкретного счета
    */
-  isTimeToSend() {
-    const settings = this.getSettings();
+  isTimeToSend(invoice) {
+    if (!invoice.nextSendDate) {
+      return false;
+    }
+
     const now = new Date();
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
+    const sendDate = new Date(invoice.nextSendDate);
 
-    const targetHour = settings.sendTimeHour || 10;
-    const targetMinute = settings.sendTimeMinute || 0;
+    // Проверяем, что дата наступила
+    if (sendDate > now) {
+      return false;
+    }
 
-    // Проверяем, что текущее время находится в пределах 10 минут от целевого времени
-    // (так как проверка происходит каждые 10 минут)
-    const currentTotalMinutes = currentHour * 60 + currentMinute;
-    const targetTotalMinutes = targetHour * 60 + targetMinute;
+    // Проверяем, что не прошло больше 10 минут с момента планируемой отправки
+    const diffMs = now - sendDate;
+    const diffMinutes = diffMs / (1000 * 60);
 
     // Разрешаем отправку в течение 10 минут после указанного времени
-    const diff = currentTotalMinutes - targetTotalMinutes;
-    return diff >= 0 && diff < 10;
+    return diffMinutes >= 0 && diffMinutes < 10;
   }
 
   /**
@@ -137,28 +139,28 @@ class AutoSendScheduler {
     try {
       this.isProcessing = true;
 
-      // Проверяем, наступило ли время рассылки
-      if (!this.isTimeToSend()) {
-        const settings = this.getSettings();
-        console.log(`[AutoSend] Время рассылки еще не наступило. Запланировано на ${settings.sendTimeHour}:${String(settings.sendTimeMinute).padStart(2, '0')}`);
-        return;
-      }
-
-      console.log('[AutoSend] Время рассылки наступило! Проверка счетов для автоматической отправки...');
+      console.log('[AutoSend] Проверка счетов для автоматической отправки...');
 
       const invoices = this.db.getInvoicesForAutoSend();
 
       if (invoices.length === 0) {
-        console.log('[AutoSend] Нет счетов для отправки');
+        console.log('[AutoSend] Нет счетов с включенной авторассылкой');
         return;
       }
 
-      console.log(`[AutoSend] Найдено счетов для отправки: ${invoices.length}`);
+      console.log(`[AutoSend] Найдено счетов с авторассылкой: ${invoices.length}`);
 
-      // Фильтруем счета: исключаем клиентов, которым уже отправляли сегодня
+      // Фильтруем счета: проверяем время и исключаем уже отправленные сегодня
       const filteredInvoices = invoices.filter(invoice => {
         if (!invoice.clientPhone) {
           console.log(`[AutoSend] Пропускаем счет №${invoice.invoiceNumber}: нет номера телефона`);
+          return false;
+        }
+
+        // Проверяем, наступило ли время для этого счета
+        if (!this.isTimeToSend(invoice)) {
+          const sendDate = new Date(invoice.nextSendDate);
+          console.log(`[AutoSend] Пропускаем счет №${invoice.invoiceNumber}: время еще не наступило (запланировано на ${sendDate.toLocaleString('ru-RU')})`);
           return false;
         }
 

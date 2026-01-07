@@ -400,6 +400,7 @@
         }
 
         .form-group input[type="date"],
+        .form-group input[type="time"],
         .form-group input[type="checkbox"] {
             padding: 10px;
             border: 1px solid #ddd;
@@ -752,8 +753,12 @@
                     <label for="nextSendDate">Дата следующей рассылки:</label>
                     <input type="date" id="nextSendDate">
                 </div>
+                <div class="form-group">
+                    <label for="nextSendTime">Время рассылки:</label>
+                    <input type="time" id="nextSendTime" value="10:00">
+                </div>
                 <p style="color: #666; font-size: 0.9em; margin-top: 10px;">
-                    📅 Счет будет автоматически отправляться клиенту каждый месяц в указанную дату.<br>
+                    📅 Счет будет автоматически отправляться клиенту каждый месяц в указанную дату и время.<br>
                     ⏰ Между рассылками разным клиентам будет интервал 10 минут.
                 </p>
             </div>
@@ -1186,6 +1191,8 @@
         }
 
         function editInvoice(id) {
+            console.log('[EditInvoice] Переход на редактирование ID:', id);
+            console.log('[EditInvoice] URL будет:', `/?edit=${id}`);
             window.location.href = `/?edit=${id}`;
         }
 
@@ -1273,12 +1280,17 @@
                     if (invoice.nextSendDate) {
                         const date = new Date(invoice.nextSendDate);
                         document.getElementById('nextSendDate').value = date.toISOString().split('T')[0];
+                        // Извлекаем время из даты
+                        const hours = String(date.getHours()).padStart(2, '0');
+                        const minutes = String(date.getMinutes()).padStart(2, '0');
+                        document.getElementById('nextSendTime').value = `${hours}:${minutes}`;
                     } else {
-                        // По умолчанию - следующий месяц, 14-е число
+                        // По умолчанию - следующий месяц, 14-е число, 10:00
                         const nextMonth = new Date();
                         nextMonth.setMonth(nextMonth.getMonth() + 1);
                         nextMonth.setDate(14);
                         document.getElementById('nextSendDate').value = nextMonth.toISOString().split('T')[0];
+                        document.getElementById('nextSendTime').value = '10:00';
                     }
                 }
             } catch (error) {
@@ -1299,10 +1311,25 @@
 
             const enabled = document.getElementById('autoSendEnabled').checked;
             const nextSendDate = document.getElementById('nextSendDate').value;
+            const nextSendTime = document.getElementById('nextSendTime').value;
 
             if (enabled && !nextSendDate) {
                 alert('Пожалуйста, укажите дату следующей рассылки');
                 return;
+            }
+
+            if (enabled && !nextSendTime) {
+                alert('Пожалуйста, укажите время рассылки');
+                return;
+            }
+
+            // Объединяем дату и время в одну дату
+            let fullDateTime = null;
+            if (nextSendDate && nextSendTime) {
+                const [hours, minutes] = nextSendTime.split(':');
+                const dateTime = new Date(nextSendDate);
+                dateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+                fullDateTime = dateTime.toISOString();
             }
 
             try {
@@ -1311,15 +1338,19 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         enabled,
-                        nextSendDate: nextSendDate ? new Date(nextSendDate).toISOString() : null
+                        nextSendDate: fullDateTime
                     })
                 });
 
                 const result = await response.json();
 
                 if (result.success) {
-                    showNotification('✅ Настройки сохранены',
-                        enabled ? 'Автоматическая рассылка включена' : 'Автоматическая рассылка выключена');
+                    let message = enabled ? 'Автоматическая рассылка включена' : 'Автоматическая рассылка выключена';
+                    if (enabled && fullDateTime) {
+                        const dt = new Date(fullDateTime);
+                        message += `\nСледующая отправка: ${dt.toLocaleString('ru-RU')}`;
+                    }
+                    showNotification('✅ Настройки сохранены', message);
                     closeAutoSendModal();
                     loadInvoices(); // Перезагружаем список
                 } else {
@@ -1354,10 +1385,19 @@
                 return;
             }
 
-            // Загружаем шаблон сообщения из настроек
-            const settings = JSON.parse(localStorage.getItem('whatsappMessageSettings') || '{}');
-            const defaultMessage = 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.';
-            const messageTemplate = settings.greeting || defaultMessage;
+            // Загружаем шаблон сообщения из базы данных через API
+            let messageTemplate = 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.';
+            try {
+                const settingsResponse = await fetch('/api/whatsapp/settings');
+                if (settingsResponse.ok) {
+                    const settingsData = await settingsResponse.json();
+                    if (settingsData.success && settingsData.settings && settingsData.settings.greeting) {
+                        messageTemplate = settingsData.settings.greeting;
+                    }
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки настроек WhatsApp:', error);
+            }
 
             // Формируем сообщение, заменяя {номер} на фактический номер счета
             const message = messageTemplate.replace('{номер}', invoiceNumber);
