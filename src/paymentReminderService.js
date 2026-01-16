@@ -180,6 +180,19 @@ class PaymentReminderService {
         return false;
       }
 
+      // Проверяем, не отправляли ли уже напоминание сегодня
+      if (invoice.lastReminderSentAt) {
+        const lastReminderDate = new Date(invoice.lastReminderSentAt);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        lastReminderDate.setHours(0, 0, 0, 0);
+
+        // Если напоминание уже отправлялось сегодня, пропускаем
+        if (lastReminderDate.getTime() === today.getTime()) {
+          return false;
+        }
+      }
+
       return true;
     });
   }
