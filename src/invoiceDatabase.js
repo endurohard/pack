@@ -96,7 +96,12 @@ class InvoiceDatabase {
    * Получить счет по номеру
    */
   getInvoiceByNumber(invoiceNumber) {
-    return this.invoices.find(inv => inv.invoiceNumber === parseInt(invoiceNumber));
+    // Поддерживаем поиск по строке и числу
+    return this.invoices.find(inv =>
+      inv.invoiceNumber === invoiceNumber ||
+      inv.invoiceNumber === String(invoiceNumber) ||
+      inv.invoiceNumber === parseInt(invoiceNumber)
+    );
   }
 
   /**
@@ -211,11 +216,18 @@ class InvoiceDatabase {
    * Возвращает счета у которых:
    * - autoSendEnabled = true
    * - nextSendDate <= текущая дата
+   * - счет не оплачен полностью
    */
   getInvoicesForAutoSend() {
     const now = new Date();
     return this.invoices.filter(inv => {
       if (!inv.autoSendEnabled || !inv.nextSendDate) return false;
+
+      // Проверяем, не оплачен ли счет полностью
+      if (inv.paid) return false;
+      const paidAmount = inv.paidAmount || 0;
+      if (paidAmount >= inv.amount) return false;
+
       const sendDate = new Date(inv.nextSendDate);
       return sendDate <= now;
     });

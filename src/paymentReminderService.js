@@ -20,6 +20,11 @@ class PaymentReminderService {
     this.sendDelay = 10 * 60 * 1000; // 10 минут задержка между отправками
     this.intervalId = null;
     this.checkHour = 10; // Время проверки - 10:00 утра
+
+    // Очередь отправки напоминаний
+    this.reminderQueue = [];
+    this.currentSending = null;
+    this.cancelledReminders = new Set(); // ID счетов, напоминание которых отменено
   }
 
   /**
@@ -89,11 +94,22 @@ class PaymentReminderService {
 
       console.log(`[PaymentReminder] Найдено неоплаченных счетов: ${unpaidInvoices.length}`);
 
-      // Отправляем напоминания с задержкой между ними
-      for (let i = 0; i < unpaidInvoices.length; i++) {
-        const invoice = unpaidInvoices[i];
+      // Добавляем счета в очередь
+      this.reminderQueue = unpaidInvoices;
 
-        console.log(`[PaymentReminder] Отправка напоминания ${i + 1}/${unpaidInvoices.length}: №${invoice.invoiceNumber} для клиента ${invoice.client}`);
+      // Отправляем напоминания с задержкой между ними
+      for (let i = 0; i < this.reminderQueue.length; i++) {
+        const invoice = this.reminderQueue[i];
+
+        // Проверяем, не была ли отменена отправка
+        if (this.cancelledReminders.has(invoice.id)) {
+          console.log(`[PaymentReminder] ⚠️ Отправка напоминания для счета №${invoice.invoiceNumber} отменена`);
+          this.cancelledReminders.delete(invoice.id);
+          continue;
+        }
+
+        this.currentSending = invoice;
+        console.log(`[PaymentReminder] Отправка напоминания ${i + 1}/${this.reminderQueue.length}: №${invoice.invoiceNumber} для клиента ${invoice.client}`);
 
         try {
           await this.sendReminder(invoice);
@@ -109,14 +125,17 @@ class PaymentReminderService {
           console.error(`[PaymentReminder] ❌ Ошибка при отправке напоминания для счета №${invoice.invoiceNumber}:`, error.message);
         }
 
+        this.currentSending = null;
+
         // Ждем 10 минут перед следующей отправкой (кроме последнего)
-        if (i < unpaidInvoices.length - 1) {
+        if (i < this.reminderQueue.length - 1) {
           console.log(`[PaymentReminder] Ожидание 10 минут перед следующей отправкой...`);
           await this.sleep(this.sendDelay);
         }
       }
 
       console.log('[PaymentReminder] Все напоминания отправлены');
+      this.reminderQueue = [];
 
     } catch (error) {
       console.error('[PaymentReminder] Ошибка при обработке напоминаний:', error);
@@ -135,17 +154,31 @@ class PaymentReminderService {
       // Счет не оплачен
       if (invoice.paid) return false;
 
-      // Напоминания включены
-      if (!invoice.reminderEnabled) return false;
+      // Проверяем, не оплачен ли счет полностью через paidAmount
+      const paidAmount = invoice.paidAmount || 0;
+      if (paidAmount >= invoice.amount) {
+        return false;
+      }
 
-      // Счет должен быть отправлен через WhatsApp хотя бы один раз
-      if (!invoice.lastWhatsAppSent) {
-        console.log(`[PaymentReminder] Счет №${invoice.invoiceNumber} пропущен - не был отправлен через WhatsApp`);
+      // Счет должен быть отправлен через WhatsApp или вручную клиенту
+      if (!invoice.lastWhatsAppSent && !invoice.sentToClientAt) {
         return false;
       }
 
       // Есть номер телефона клиента
       if (!invoice.clientPhone) return false;
+
+      // Напоминания отправляем по умолчанию для всех отправленных неоплаченных счетов
+      // Используем дату отправки через WhatsApp, если есть, иначе дату отправки клиенту
+      const sentDate = invoice.lastWhatsAppSent
+        ? new Date(invoice.lastWhatsAppSent)
+        : new Date(invoice.sentToClientAt);
+      const daysSinceSent = Math.floor((new Date() - sentDate) / (1000 * 60 * 60 * 24));
+
+      // Если счет только что отправлен (сегодня), не отправляем напоминание
+      if (daysSinceSent === 0) {
+        return false;
+      }
 
       return true;
     });
@@ -169,7 +202,22 @@ class PaymentReminderService {
     }
 
     // Шаблон по умолчанию
-    return 'Добрый день!\n\nНапоминаем об оплате счета №{номер}.\n\nКлиент: {клиент}\nСумма: {сумма} ₽\nДата выставления: {дата}\nПросрочка: {дни}\n\nПожалуйста, произведите оплату в ближайшее время.\n\nС уважением.';
+    return 'Добрый день!\n\nНапоминаем об оплате счета №{номер}.\n\n📊 Сумма счета: {сумма} ₽\n📅 Дата выставления: {дата}\n⏰ Прошло: {дни}\n\nПожалуйста, произведите оплату в ближайшее время.\n\nС уважением.';
+  }
+
+  /**
+   * Получить настройки из файла
+   */
+  getSettings() {
+    try {
+      const settingsPath = path.join(__dirname, '../data/whatsapp-settings.json');
+      if (fs.existsSync(settingsPath)) {
+        return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      }
+    } catch (error) {
+      console.error('[PaymentReminder] Ошибка чтения настроек:', error.message);
+    }
+    return {};
   }
 
   /**
@@ -190,21 +238,52 @@ class PaymentReminderService {
       phone = '7' + phone;
     }
 
-    // Вычисляем количество дней с момента создания счета
-    const createdDate = new Date(invoice.createdAt);
+    // Проверяем тестовый режим
+    const settings = this.getSettings();
+    const originalPhone = phone;
+    if (settings.testMode && settings.testPhone) {
+      console.log(`[PaymentReminder] 🧪 ТЕСТОВЫЙ РЕЖИМ: Перенаправление с ${phone} на ${settings.testPhone}`);
+      phone = settings.testPhone;
+    }
+
+    // Вычисляем количество дней с момента ОТПРАВКИ счета (не создания!)
+    // Используем дату отправки через WhatsApp, если есть
+    // Иначе дату отправки клиенту вручную (sentToClientAt)
+    // Иначе дату создания счета
+    const sentDate = invoice.lastWhatsAppSent
+      ? new Date(invoice.lastWhatsAppSent)
+      : invoice.sentToClientAt
+        ? new Date(invoice.sentToClientAt)
+        : new Date(invoice.createdAt);
     const now = new Date();
-    const daysPassed = Math.floor((now - createdDate) / (1000 * 60 * 60 * 24));
+    const daysPassed = Math.floor((now - sentDate) / (1000 * 60 * 60 * 24));
+
+    // Вычисляем остаток к оплате с учетом частичной оплаты
+    const paidAmount = invoice.paidAmount || 0;
+    const remainingAmount = invoice.amount - paidAmount;
+    const totalAmount = invoice.amount;
 
     // Получаем шаблон сообщения
     const messageTemplate = this.getReminderMessageTemplate();
 
     // Формируем сообщение-напоминание, подставляя значения
-    const message = messageTemplate
+    let message = messageTemplate
       .replace(/{номер}/g, invoice.invoiceNumber)
       .replace(/{клиент}/g, invoice.client)
-      .replace(/{сумма}/g, invoice.amount?.toLocaleString('ru-RU'))
-      .replace(/{дата}/g, createdDate.toLocaleDateString('ru-RU'))
+      .replace(/{сумма}/g, totalAmount?.toLocaleString('ru-RU'))
+      .replace(/{дата}/g, sentDate.toLocaleDateString('ru-RU'))
       .replace(/{дни}/g, `${daysPassed} ${this.getDaysWord(daysPassed)}`);
+
+    // Если есть частичная оплата, добавляем информацию об остатке
+    if (paidAmount > 0 && remainingAmount > 0) {
+      message += `\n\n💰 Уже оплачено: ${paidAmount.toLocaleString('ru-RU')} ₽`;
+      message += `\n⚠️ Остаток к оплате: ${remainingAmount.toLocaleString('ru-RU')} ₽`;
+    }
+
+    // Добавляем информацию о тестовом режиме
+    if (settings.testMode && settings.testPhone && originalPhone !== settings.testPhone) {
+      message = `🧪 ТЕСТОВОЕ НАПОМИНАНИЕ\nДля клиента: ${invoice.client} (${originalPhone})\n\n` + message;
+    }
 
     console.log(`[PaymentReminder] Отправка напоминания для счета №${invoice.invoiceNumber}`);
     console.log(`[PaymentReminder] Телефон: ${phone}`);
@@ -250,6 +329,62 @@ class PaymentReminderService {
   }
 
   /**
+   * Получить очередь напоминаний
+   */
+  getQueue() {
+    return {
+      queue: this.reminderQueue.map(invoice => ({
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        client: invoice.client,
+        clientPhone: invoice.clientPhone,
+        amount: invoice.amount,
+        lastReminderSentAt: invoice.lastReminderSentAt,
+        type: 'reminder'
+      })),
+      currentSending: this.currentSending ? {
+        id: this.currentSending.id,
+        invoiceNumber: this.currentSending.invoiceNumber,
+        client: this.currentSending.client,
+        type: 'reminder'
+      } : null,
+      isProcessing: this.isProcessing
+    };
+  }
+
+  /**
+   * Отменить отправку напоминания
+   */
+  cancelReminder(invoiceId) {
+    // Добавляем в список отмененных
+    this.cancelledReminders.add(invoiceId);
+
+    // Удаляем из очереди, если там есть
+    const index = this.reminderQueue.findIndex(inv => inv.id === invoiceId);
+    if (index !== -1) {
+      this.reminderQueue.splice(index, 1);
+      console.log(`[PaymentReminder] Напоминание для счета №${invoiceId} удалено из очереди`);
+      return { success: true, message: 'Напоминание удалено из очереди' };
+    }
+
+    // Проверяем, не отправляется ли сейчас
+    if (this.currentSending && this.currentSending.id === invoiceId) {
+      console.log(`[PaymentReminder] Отмена текущей отправки напоминания для счета №${invoiceId}`);
+      return { success: true, message: 'Текущая отправка будет отменена' };
+    }
+
+    return { success: false, message: 'Напоминание не найдено в очереди' };
+  }
+
+  /**
+   * Очистить отмену напоминания
+   */
+  clearCancellation(invoiceId) {
+    this.cancelledReminders.delete(invoiceId);
+    console.log(`[PaymentReminder] Отмена напоминания для счета №${invoiceId} снята`);
+  }
+
+  /**
    * Получить статус сервиса
    */
   getStatus() {
@@ -258,7 +393,9 @@ class PaymentReminderService {
       isProcessing: this.isProcessing,
       checkInterval: this.checkInterval,
       sendDelay: this.sendDelay,
-      upcomingReminders: this.getUnpaidInvoicesWithReminders().length
+      upcomingReminders: this.getUnpaidInvoicesWithReminders().length,
+      queueLength: this.reminderQueue.length,
+      currentSending: this.currentSending ? this.currentSending.invoiceNumber : null
     };
   }
 }
