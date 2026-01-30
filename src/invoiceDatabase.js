@@ -80,6 +80,8 @@ class InvoiceDatabase {
    * Получить все счета
    */
   getAllInvoices() {
+    // Перезагружаем данные из файла для обеспечения актуальности
+    this.loadData();
     return this.invoices.sort((a, b) =>
       new Date(b.createdAt) - new Date(a.createdAt)
     );
@@ -89,6 +91,8 @@ class InvoiceDatabase {
    * Получить счет по ID
    */
   getInvoiceById(id) {
+    // Перезагружаем данные из файла для обеспечения актуальности
+    this.loadData();
     return this.invoices.find(inv => inv.id === id);
   }
 
@@ -96,6 +100,8 @@ class InvoiceDatabase {
    * Получить счет по номеру
    */
   getInvoiceByNumber(invoiceNumber) {
+    // Перезагружаем данные из файла для обеспечения актуальности
+    this.loadData();
     // Поддерживаем поиск по строке и числу
     return this.invoices.find(inv =>
       inv.invoiceNumber === invoiceNumber ||
@@ -219,6 +225,8 @@ class InvoiceDatabase {
    * - счет не оплачен полностью
    */
   getInvoicesForAutoSend() {
+    // Перезагружаем данные из файла для обеспечения актуальности
+    this.loadData();
     const now = new Date();
     return this.invoices.filter(inv => {
       if (!inv.autoSendEnabled || !inv.nextSendDate) return false;
