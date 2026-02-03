@@ -14,6 +14,8 @@ import PaymentReminderService from './paymentReminderService.js';
 import InvoiceTelegramBot from './telegramBot.js';
 import { authMiddleware, loginHandler, verifyHandler, logoutHandler } from './authMiddleware.js';
 import authDatabase from './authDatabase.js';
+import ProposalsDatabase from './proposalsDatabase.js';
+import ProposalGenerator from './proposalGenerator.js';
 import fs from 'fs';
 import multer from 'multer';
 
@@ -160,6 +162,8 @@ const db = new InvoiceDatabase();
 const warehouseDb = new WarehouseDatabase();
 const clientsDb = new ClientsDatabase();
 const categoriesDb = new ExpenseCategories();
+const proposalsDb = new ProposalsDatabase();
+const proposalGenerator = new ProposalGenerator();
 
 // Создаем планировщик автоматической рассылки
 let autoSendScheduler = null;
@@ -200,7 +204,7 @@ app.post('/api/invoice', async (req, res) => {
         quantity: item.quantity,
         price: item.price,
         cost: item.cost || 0,
-        amount: item.quantity * item.price
+        amount: Math.round(item.quantity * item.price * 100) / 100
       })),
       payment
     };
@@ -212,13 +216,24 @@ app.post('/api/invoice', async (req, res) => {
 
     // Вычисляем общую сумму
     let totalAmount = invoiceData.items.reduce((sum, item) => sum + item.amount, 0);
+
+    // Округляем промежуточную сумму до 2 знаков
+    totalAmount = Math.round(totalAmount * 100) / 100;
+
     if (invoiceData.discount) {
+      let discountAmount = 0;
       if (invoiceData.discount.type === 'percent') {
-        totalAmount -= totalAmount * (invoiceData.discount.value / 100);
+        discountAmount = totalAmount * (invoiceData.discount.value / 100);
       } else if (invoiceData.discount.type === 'fixed') {
-        totalAmount -= invoiceData.discount.value;
+        discountAmount = invoiceData.discount.value;
       }
+      // Округляем сумму скидки до 2 знаков
+      discountAmount = Math.round(discountAmount * 100) / 100;
+      totalAmount -= discountAmount;
     }
+
+    // Округляем итоговую сумму до 2 знаков
+    totalAmount = Math.round(totalAmount * 100) / 100;
 
     // Генерируем имя файла на основе названия клиента
     const clientNameClean = sanitizeFilename(clientName);
@@ -513,6 +528,94 @@ app.get('/api/invoices/paid/list', (req, res) => {
   }
 });
 
+// Получить аналитику по абонементным счетам (recurring)
+app.get('/api/invoices/recurring/analytics', (req, res) => {
+  try {
+    const allInvoices = db.getAllInvoices();
+
+    // Фильтруем только абонементные счета
+    const recurringInvoices = allInvoices.filter(invoice => invoice.isRecurring === true);
+
+    // Группируем по клиентам
+    const clientsMap = new Map();
+
+    recurringInvoices.forEach(invoice => {
+      const clientName = invoice.client || 'Без имени';
+
+      if (!clientsMap.has(clientName)) {
+        clientsMap.set(clientName, {
+          clientName,
+          clientPhone: invoice.clientPhone,
+          totalInvoices: 0,
+          paidInvoices: 0,
+          unpaidInvoices: 0,
+          totalAmount: 0,
+          paidAmount: 0,
+          unpaidAmount: 0,
+          monthlyAmount: 0, // средняя сумма за месяц
+          autoSendEnabled: false,
+          nextSendDate: null,
+          invoices: []
+        });
+      }
+
+      const clientData = clientsMap.get(clientName);
+      clientData.totalInvoices++;
+      clientData.totalAmount += invoice.amount;
+      clientData.invoices.push({
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        amount: invoice.amount,
+        paid: invoice.paid,
+        paidAt: invoice.paidAt,
+        createdAt: invoice.createdAt,
+        autoSendEnabled: invoice.autoSendEnabled,
+        nextSendDate: invoice.nextSendDate
+      });
+
+      if (invoice.paid) {
+        clientData.paidInvoices++;
+        clientData.paidAmount += invoice.paidAmount || invoice.amount;
+      } else {
+        clientData.unpaidInvoices++;
+        clientData.unpaidAmount += invoice.amount;
+      }
+
+      // Берем информацию об авторассылке из последнего неоплаченного счета
+      if (!invoice.paid && invoice.autoSendEnabled) {
+        clientData.autoSendEnabled = true;
+        clientData.nextSendDate = invoice.nextSendDate;
+      }
+
+      // Вычисляем среднюю сумму (берем из последнего счета)
+      clientData.monthlyAmount = invoice.amount;
+    });
+
+    // Конвертируем Map в массив и сортируем
+    const clients = Array.from(clientsMap.values()).sort((a, b) => {
+      return b.totalAmount - a.totalAmount; // сортируем по убыванию общей суммы
+    });
+
+    // Общая статистика
+    const stats = {
+      totalClients: clients.length,
+      totalInvoices: recurringInvoices.length,
+      totalPaidInvoices: clients.reduce((sum, c) => sum + c.paidInvoices, 0),
+      totalUnpaidInvoices: clients.reduce((sum, c) => sum + c.unpaidInvoices, 0),
+      totalRevenue: clients.reduce((sum, c) => sum + c.paidAmount, 0),
+      expectedMonthlyRevenue: clients.reduce((sum, c) => sum + c.monthlyAmount, 0),
+      activeAutoSend: clients.filter(c => c.autoSendEnabled).length
+    };
+
+    res.json({
+      stats,
+      clients
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Обновить счет
 app.put('/api/invoices/:id', async (req, res) => {
   try {
@@ -536,7 +639,7 @@ app.put('/api/invoices/:id', async (req, res) => {
         quantity: item.quantity,
         price: item.price,
         cost: item.cost || 0,
-        amount: item.quantity * item.price
+        amount: Math.round(item.quantity * item.price * 100) / 100
       })),
       payment
     };
@@ -548,13 +651,24 @@ app.put('/api/invoices/:id', async (req, res) => {
 
     // Вычисляем общую сумму
     let totalAmount = invoiceData.items.reduce((sum, item) => sum + item.amount, 0);
+
+    // Округляем промежуточную сумму до 2 знаков
+    totalAmount = Math.round(totalAmount * 100) / 100;
+
     if (invoiceData.discount) {
+      let discountAmount = 0;
       if (invoiceData.discount.type === 'percent') {
-        totalAmount -= totalAmount * (invoiceData.discount.value / 100);
+        discountAmount = totalAmount * (invoiceData.discount.value / 100);
       } else if (invoiceData.discount.type === 'fixed') {
-        totalAmount -= invoiceData.discount.value;
+        discountAmount = invoiceData.discount.value;
       }
+      // Округляем сумму скидки до 2 знаков
+      discountAmount = Math.round(discountAmount * 100) / 100;
+      totalAmount -= discountAmount;
     }
+
+    // Округляем итоговую сумму до 2 знаков
+    totalAmount = Math.round(totalAmount * 100) / 100;
 
     // Генерируем новое имя файла
     const clientNameClean = sanitizeFilename(clientName);
@@ -844,6 +958,27 @@ app.delete('/api/invoices/:id', (req, res) => {
       }
 
       res.json({ success: true, message: 'Счет удален' });
+    } else {
+      res.status(404).json({ error: 'Счет не найден' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Отметить счет как отправленный клиенту
+app.put('/api/invoices/:id/sent-to-client', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { sentToClient, sentToClientAt } = req.body;
+
+    const invoice = db.updateInvoice(id, {
+      sentToClient: sentToClient !== undefined ? sentToClient : true,
+      sentToClientAt: sentToClient ? (sentToClientAt || new Date().toISOString()) : null
+    });
+
+    if (invoice) {
+      res.json({ success: true, invoice });
     } else {
       res.status(404).json({ error: 'Счет не найден' });
     }
@@ -1367,8 +1502,8 @@ app.post('/api/whatsapp/send-file', async (req, res) => {
     const outputDir = path.join(__dirname, '../output');
     const files = fs.readdirSync(outputDir);
 
-    // Ищем файл, который содержит номер счета
-    const pdfFile = files.find(f => {
+    // Ищем все файлы, которые содержат номер счета
+    const matchingFiles = files.filter(f => {
       if (!f.endsWith('.pdf')) return false;
 
       // Поддерживаем разные форматы:
@@ -1390,10 +1525,27 @@ app.post('/api/whatsapp/send-file', async (req, res) => {
       return false;
     });
 
-    if (!pdfFile) {
+    if (matchingFiles.length === 0) {
       console.error(`PDF файл для счета ${invoiceId} не найден в ${outputDir}`);
       console.error(`Доступные файлы:`, files.filter(f => f.endsWith('.pdf')));
       return res.status(404).json({ error: 'PDF файл не найден' });
+    }
+
+    // Если найдено несколько файлов, выбираем самый свежий по дате модификации
+    let pdfFile = matchingFiles[0];
+    if (matchingFiles.length > 1) {
+      console.log(`⚠️  Найдено несколько файлов для счета ${invoiceId}: ${matchingFiles.join(', ')}`);
+
+      const fileStats = matchingFiles.map(f => ({
+        name: f,
+        mtime: fs.statSync(path.join(outputDir, f)).mtime
+      }));
+
+      // Сортируем по дате модификации (самый свежий первый)
+      fileStats.sort((a, b) => b.mtime - a.mtime);
+      pdfFile = fileStats[0].name;
+
+      console.log(`✅ Выбран самый свежий файл: ${pdfFile} (${fileStats[0].mtime.toLocaleString('ru-RU')})`);
     }
 
     const pdfPath = path.join(outputDir, pdfFile);
@@ -1683,14 +1835,24 @@ app.post('/api/payment-reminders/send-now', async (req, res) => {
 // API endpoint для сохранения настроек WhatsApp сообщений
 app.post('/api/whatsapp/settings', (req, res) => {
   try {
-    const { greeting, reminder, sendTimeHour, sendTimeMinute } = req.body;
+    const { greeting, reminder, sendTimeHour, sendTimeMinute, restartWhatsAppAfterSend, testMode, testPhone } = req.body;
     const settingsPath = path.join(__dirname, '../data/whatsapp-settings.json');
 
+    // Читаем существующие настройки
+    let existingSettings = {};
+    if (fs.existsSync(settingsPath)) {
+      existingSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    }
+
     const settings = {
-      greeting: greeting || '',
-      reminder: reminder || '',
-      sendTimeHour: sendTimeHour !== undefined ? parseInt(sendTimeHour) : 10,
-      sendTimeMinute: sendTimeMinute !== undefined ? parseInt(sendTimeMinute) : 0
+      ...existingSettings,
+      greeting: greeting !== undefined ? greeting : existingSettings.greeting || '',
+      reminder: reminder !== undefined ? reminder : existingSettings.reminder || '',
+      sendTimeHour: sendTimeHour !== undefined ? parseInt(sendTimeHour) : (existingSettings.sendTimeHour || 10),
+      sendTimeMinute: sendTimeMinute !== undefined ? parseInt(sendTimeMinute) : (existingSettings.sendTimeMinute || 0),
+      restartWhatsAppAfterSend: restartWhatsAppAfterSend !== undefined ? restartWhatsAppAfterSend : (existingSettings.restartWhatsAppAfterSend !== undefined ? existingSettings.restartWhatsAppAfterSend : true),
+      testMode: testMode !== undefined ? testMode : (existingSettings.testMode || false),
+      testPhone: testPhone !== undefined ? testPhone : (existingSettings.testPhone || '')
     };
 
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
@@ -1717,7 +1879,10 @@ app.get('/api/whatsapp/settings', (req, res) => {
           greeting: 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.',
           reminder: 'Добрый день!\n\nНапоминаем об оплате счета №{номер}.\n\nКлиент: {клиент}\nСумма: {сумма} ₽\nДата выставления: {дата}\nПросрочка: {дни}\n\nПожалуйста, произведите оплату в ближайшее время.\n\nС уважением.',
           sendTimeHour: 10,
-          sendTimeMinute: 0
+          sendTimeMinute: 0,
+          restartWhatsAppAfterSend: true,
+          testMode: false,
+          testPhone: ''
         }
       });
     }
@@ -1725,6 +1890,262 @@ app.get('/api/whatsapp/settings', (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// API endpoint для получения очереди авторассылки
+app.get('/api/whatsapp/send-queue', (req, res) => {
+  try {
+    if (!autoSendScheduler) {
+      return res.status(503).json({ error: 'Сервис авторассылки не инициализирован' });
+    }
+
+    const queue = autoSendScheduler.getQueue();
+    res.json({ success: true, ...queue });
+  } catch (error) {
+    console.error('[API] Ошибка получения очереди авторассылки:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API endpoint для получения очереди напоминаний
+app.get('/api/whatsapp/reminder-queue', (req, res) => {
+  try {
+    if (!paymentReminderService) {
+      return res.status(503).json({ error: 'Сервис напоминаний не инициализирован' });
+    }
+
+    const queue = paymentReminderService.getQueue();
+    res.json({ success: true, ...queue });
+  } catch (error) {
+    console.error('[API] Ошибка получения очереди напоминаний:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API endpoint для отмены отправки счета из очереди авторассылки
+app.post('/api/whatsapp/cancel-send/:invoiceId', (req, res) => {
+  try {
+    if (!autoSendScheduler) {
+      return res.status(503).json({ error: 'Сервис авторассылки не инициализирован' });
+    }
+
+    const { invoiceId } = req.params;
+    const result = autoSendScheduler.cancelInvoiceSending(invoiceId);
+
+    res.json({ success: result.success, message: result.message });
+  } catch (error) {
+    console.error('[API] Ошибка отмены отправки:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API endpoint для отмены напоминания из очереди
+app.post('/api/whatsapp/cancel-reminder/:invoiceId', (req, res) => {
+  try {
+    if (!paymentReminderService) {
+      return res.status(503).json({ error: 'Сервис напоминаний не инициализирован' });
+    }
+
+    const { invoiceId } = req.params;
+    const result = paymentReminderService.cancelReminder(invoiceId);
+
+    res.json({ success: result.success, message: result.message });
+  } catch (error) {
+    console.error('[API] Ошибка отмены напоминания:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API endpoint для получения объединенной очереди (авторассылка + напоминания)
+app.get('/api/whatsapp/queue', (req, res) => {
+  try {
+    const result = {
+      success: true,
+      autoSend: null,
+      reminders: null
+    };
+
+    if (autoSendScheduler) {
+      result.autoSend = autoSendScheduler.getQueue();
+    }
+
+    if (paymentReminderService) {
+      result.reminders = paymentReminderService.getQueue();
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error('[API] Ошибка получения очереди:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== ВАЛИДАЦИЯ НОМЕРОВ ТЕЛЕФОНОВ ====================
+
+// API endpoint для валидации номеров телефонов в счетах
+app.get('/api/phone-validation/report', (req, res) => {
+  try {
+    const PhoneValidator = require('./phoneValidator.js').default;
+    const validator = new PhoneValidator();
+    const invoices = db.getAllInvoices();
+    const report = validator.validateAllInvoices(invoices);
+
+    res.json({ success: true, report });
+  } catch (error) {
+    console.error('[API] Ошибка валидации номеров:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API endpoint для валидации номеров в счетах с автоотправкой
+app.get('/api/phone-validation/auto-send-report', (req, res) => {
+  try {
+    const PhoneValidator = require('./phoneValidator.js').default;
+    const validator = new PhoneValidator();
+    const invoices = db.getAllInvoices();
+    const report = validator.validateAutoSendInvoices(invoices);
+
+    res.json({ success: true, report });
+  } catch (error) {
+    console.error('[API] Ошибка валидации номеров автоотправки:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API endpoint для проверки конкретного счета
+app.get('/api/phone-validation/:invoiceId', (req, res) => {
+  try {
+    const { invoiceId } = req.params;
+    const PhoneValidator = require('./phoneValidator.js').default;
+    const validator = new PhoneValidator();
+
+    const invoice = db.getInvoiceById(invoiceId);
+    if (!invoice) {
+      return res.status(404).json({ error: 'Счет не найден' });
+    }
+
+    const validation = validator.validateInvoicePhone(invoice.client, invoice.clientPhone);
+    const fixResult = validator.fixInvoicePhone(invoice.client, invoice.clientPhone);
+
+    res.json({
+      success: true,
+      invoice: {
+        number: invoice.invoiceNumber,
+        client: invoice.client,
+        currentPhone: invoice.clientPhone
+      },
+      validation,
+      fix: fixResult
+    });
+  } catch (error) {
+    console.error('[API] Ошибка проверки номера:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API endpoint для автоматического исправления номеров
+app.post('/api/phone-validation/fix-all', (req, res) => {
+  try {
+    const PhoneValidator = require('./phoneValidator.js').default;
+    const validator = new PhoneValidator();
+    const invoices = db.getAllInvoices();
+
+    const results = {
+      total: 0,
+      fixed: 0,
+      skipped: 0,
+      errors: 0,
+      details: []
+    };
+
+    invoices.forEach(invoice => {
+      results.total++;
+
+      const fixResult = validator.fixInvoicePhone(invoice.client, invoice.clientPhone);
+
+      if (fixResult.success && fixResult.changed) {
+        // Обновляем номер телефона
+        db.updateInvoice(invoice.id, {
+          clientPhone: fixResult.correctPhone
+        });
+
+        results.fixed++;
+        results.details.push({
+          invoiceNumber: invoice.invoiceNumber,
+          client: invoice.client,
+          oldPhone: fixResult.oldPhone,
+          newPhone: fixResult.correctPhone,
+          status: 'fixed'
+        });
+      } else if (fixResult.success && !fixResult.changed) {
+        results.skipped++;
+      } else {
+        results.errors++;
+        results.details.push({
+          invoiceNumber: invoice.invoiceNumber,
+          client: invoice.client,
+          currentPhone: invoice.clientPhone,
+          status: 'error',
+          message: fixResult.message
+        });
+      }
+    });
+
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error('[API] Ошибка исправления номеров:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API endpoint для исправления номера конкретного счета
+app.post('/api/phone-validation/fix/:invoiceId', (req, res) => {
+  try {
+    const { invoiceId } = req.params;
+    const PhoneValidator = require('./phoneValidator.js').default;
+    const validator = new PhoneValidator();
+
+    const invoice = db.getInvoiceById(invoiceId);
+    if (!invoice) {
+      return res.status(404).json({ error: 'Счет не найден' });
+    }
+
+    const fixResult = validator.fixInvoicePhone(invoice.client, invoice.clientPhone);
+
+    if (fixResult.success && fixResult.changed) {
+      // Обновляем номер телефона
+      db.updateInvoice(invoiceId, {
+        clientPhone: fixResult.correctPhone
+      });
+
+      res.json({
+        success: true,
+        message: fixResult.message,
+        invoice: {
+          number: invoice.invoiceNumber,
+          client: invoice.client,
+          oldPhone: fixResult.oldPhone,
+          newPhone: fixResult.correctPhone
+        }
+      });
+    } else if (fixResult.success && !fixResult.changed) {
+      res.json({
+        success: true,
+        message: fixResult.message,
+        changed: false
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        error: fixResult.message
+      });
+    }
+  } catch (error) {
+    console.error('[API] Ошибка исправления номера:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== МАРШРУТЫ СТРАНИЦ ====================
 
 // Страница склада
 app.get('/warehouse', (req, res) => {
@@ -1759,6 +2180,11 @@ app.get('/catalog', (req, res) => {
 // Розничная продажа (с авторизацией)
 app.get('/retail', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/retail.html'));
+});
+
+// Страница коммерческих предложений
+app.get('/proposals', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/proposals.html'));
 });
 
 // ==================== ЗАГРУЗКА СКРИНШОТОВ ====================
@@ -1839,6 +2265,298 @@ app.get('/api/download/:filename', (req, res) => {
   res.download(filePath, filename);
 });
 
+// ============================================
+// API endpoints для коммерческих предложений
+// ============================================
+
+// Получить все коммерческие предложения и статистику
+app.get('/api/proposals', (req, res) => {
+  try {
+    const proposals = proposalsDb.getAllProposals();
+    const stats = proposalsDb.getStats();
+
+    res.json({
+      success: true,
+      proposals: proposals.reverse(), // Новые первыми
+      stats
+    });
+  } catch (error) {
+    console.error('Ошибка получения КП:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Создать новое коммерческое предложение
+app.post('/api/proposals', async (req, res) => {
+  try {
+    const { proposalNumber, client, clientPhone, description, validUntil, variants, payment } = req.body;
+
+    // Валидация данных
+    if (!proposalNumber || !variants || !variants.length) {
+      return res.status(400).json({ error: 'Не все обязательные поля заполнены' });
+    }
+
+    // Подготавливаем данные КП
+    const proposalData = {
+      proposalNumber,
+      clientName: client,
+      client,
+      description: description || '',
+      validUntil: validUntil || null,
+      variants: variants.map(v => ({
+        name: v.name,
+        description: v.description || '',
+        items: v.items.map(item => ({
+          name: item.name,
+          unit: item.unit || 'шт',
+          quantity: item.quantity,
+          price: item.price
+        })),
+        totalAmount: v.totalAmount
+      })),
+      payment: payment || null,
+      createdAt: new Date().toISOString()
+    };
+
+    // Генерируем имя файла
+    const clientNameClean = sanitizeFilename(client || 'КП');
+    const dateStr = new Date().toISOString().split('T')[0];
+    const filename = `КП_${proposalNumber}_${clientNameClean}_${dateStr}.pdf`;
+
+    // Генерируем PDF
+    const outputPath = path.join(__dirname, '../output', filename);
+    await proposalGenerator.generateProposal(proposalData, outputPath);
+
+    // Сохраняем в базу данных
+    const savedProposal = proposalsDb.addProposal({
+      proposalNumber,
+      filename,
+      client,
+      clientPhone: clientPhone || '',
+      variants,
+      validUntil: validUntil || null,
+      description: description || '',
+      payment,
+      createdAt: proposalData.createdAt
+    });
+
+    res.json({
+      success: true,
+      filename: filename,
+      proposal: savedProposal,
+      message: 'Коммерческое предложение успешно создано'
+    });
+
+  } catch (error) {
+    console.error('Ошибка создания КП:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Получить коммерческое предложение по ID
+app.get('/api/proposals/:id', (req, res) => {
+  try {
+    const proposal = proposalsDb.getProposalById(req.params.id);
+    if (proposal) {
+      res.json(proposal);
+    } else {
+      res.status(404).json({ error: 'Коммерческое предложение не найдено' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Удалить коммерческое предложение
+app.delete('/api/proposals/:id', (req, res) => {
+  try {
+    const proposal = proposalsDb.getProposalById(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ error: 'Коммерческое предложение не найдено' });
+    }
+
+    // Удаляем PDF файл если существует
+    if (proposal.filename) {
+      const filePath = path.join(__dirname, '../output', proposal.filename);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    }
+
+    // Удаляем из базы
+    proposalsDb.deleteProposal(req.params.id);
+
+    res.json({
+      success: true,
+      message: 'Коммерческое предложение удалено'
+    });
+  } catch (error) {
+    console.error('Ошибка удаления КП:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Отметить предложение как принятое
+app.post('/api/proposals/:id/accept', (req, res) => {
+  try {
+    const { variantIndex } = req.body;
+    const proposal = proposalsDb.acceptProposal(req.params.id, variantIndex);
+
+    if (proposal) {
+      res.json({
+        success: true,
+        proposal,
+        message: 'Предложение принято'
+      });
+    } else {
+      res.status(404).json({ error: 'Коммерческое предложение не найдено' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Обновить коммерческое предложение
+app.put('/api/proposals/:id', async (req, res) => {
+  try {
+    const { proposalNumber, client, clientPhone, description, validUntil, variants, payment } = req.body;
+
+    const existingProposal = proposalsDb.getProposalById(req.params.id);
+    if (!existingProposal) {
+      return res.status(404).json({ error: 'Коммерческое предложение не найдено' });
+    }
+
+    // Валидация данных
+    if (!proposalNumber || !variants || !variants.length) {
+      return res.status(400).json({ error: 'Не все обязательные поля заполнены' });
+    }
+
+    // Подготавливаем данные КП для генерации PDF
+    const proposalData = {
+      proposalNumber,
+      clientName: client,
+      client,
+      description: description || '',
+      validUntil: validUntil || null,
+      variants: variants.map(v => ({
+        name: v.name,
+        description: v.description || '',
+        items: v.items.map(item => ({
+          name: item.name,
+          unit: item.unit || 'шт',
+          quantity: item.quantity,
+          price: item.price
+        })),
+        totalAmount: v.totalAmount
+      })),
+      payment: payment || null,
+      createdAt: existingProposal.createdAt
+    };
+
+    // Генерируем новый PDF
+    const clientNameClean = sanitizeFilename(client || 'КП');
+    const dateStr = new Date().toISOString().split('T')[0];
+    const filename = `КП_${proposalNumber}_${clientNameClean}_${dateStr}.pdf`;
+    const outputPath = path.join(__dirname, '../output', filename);
+
+    await proposalGenerator.generateProposal(proposalData, outputPath);
+
+    // Удаляем старый файл, если имя изменилось
+    if (existingProposal.filename && existingProposal.filename !== filename) {
+      const oldFilePath = path.join(__dirname, '../output', existingProposal.filename);
+      if (fs.existsSync(oldFilePath)) {
+        fs.unlinkSync(oldFilePath);
+      }
+    }
+
+    // Обновляем в базе данных
+    const updatedProposal = proposalsDb.updateProposal(req.params.id, {
+      proposalNumber,
+      filename,
+      client,
+      clientPhone: clientPhone || '',
+      variants,
+      validUntil: validUntil || null,
+      description: description || '',
+      payment
+    });
+
+    res.json({
+      success: true,
+      filename: filename,
+      proposal: updatedProposal,
+      message: 'Коммерческое предложение успешно обновлено'
+    });
+
+  } catch (error) {
+    console.error('Ошибка обновления КП:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Отправить коммерческое предложение через WhatsApp
+app.post('/api/proposals/:id/send-whatsapp', async (req, res) => {
+  try {
+    const { phone, message } = req.body;
+    const proposal = proposalsDb.getProposalById(req.params.id);
+
+    if (!proposal) {
+      return res.status(404).json({ error: 'Коммерческое предложение не найдено' });
+    }
+
+    if (!phone) {
+      return res.status(400).json({ error: 'Не указан номер телефона' });
+    }
+
+    // Проверяем наличие файла
+    const filePath = path.join(__dirname, '../output', proposal.filename);
+    if (!fs.existsSync(filePath)) {
+      console.error(`PDF файл КП не найден: ${filePath}`);
+      return res.status(404).json({ error: 'Файл КП не найден' });
+    }
+
+    console.log(`Отправка КП ${proposal.proposalNumber} по номеру ${phone}`);
+    console.log(`Файл: ${filePath}`);
+
+    // Отправляем через WhatsApp (используем тот же метод, что и для счетов)
+    const result = await whatsappManager.sendMessageWithFile(
+      phone,
+      message || `Коммерческое предложение ${proposal.proposalNumber}`,
+      filePath
+    );
+
+    if (result.success) {
+      // Обновляем информацию об отправке
+      proposalsDb.updateWhatsAppSent(req.params.id);
+      console.log(`КП №${proposal.proposalNumber} отмечено как отправленное через WhatsApp`);
+
+      res.json({
+        success: true,
+        message: 'Коммерческое предложение отправлено через WhatsApp'
+      });
+    } else {
+      console.error('Ошибка отправки КП через WhatsApp:', result.error);
+      res.status(500).json({
+        success: false,
+        error: result.error || 'Ошибка отправки через WhatsApp'
+      });
+    }
+
+  } catch (error) {
+    console.error('Ошибка отправки КП через WhatsApp:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Запуск сервера
 app.listen(PORT, () => {
   console.log('╔════════════════════════════════════════════════════════╗');
@@ -1871,21 +2589,34 @@ app.listen(EXTERNAL_PORT, () => {
 
 // Инициализация WhatsApp
 async function initWhatsApp() {
+  let whatsappInitialized = false;
+
   try {
     console.log('');
     console.log('📱 Инициализация WhatsApp Web...');
     await whatsappManager.initialize();
+    whatsappInitialized = true;
 
     // Запускаем планировщик автоматической рассылки после инициализации WhatsApp
     autoSendScheduler = new AutoSendScheduler(whatsappManager);
     autoSendScheduler.start();
-
-    // Запускаем сервис напоминаний об оплате
-    paymentReminderService = new PaymentReminderService(whatsappManager);
-    paymentReminderService.start();
   } catch (error) {
     console.error('❌ Ошибка инициализации WhatsApp:', error.message);
     console.error('   WhatsApp отправка будет недоступна');
+  }
+
+  // Запускаем сервис напоминаний об оплате (независимо от состояния WhatsApp)
+  try {
+    console.log('');
+    console.log('🔔 Инициализация сервиса напоминаний об оплате...');
+    paymentReminderService = new PaymentReminderService(whatsappManager);
+    paymentReminderService.start();
+
+    if (!whatsappInitialized) {
+      console.log('⚠️  Напоминания будут работать только после инициализации WhatsApp');
+    }
+  } catch (error) {
+    console.error('❌ Ошибка инициализации сервиса напоминаний:', error.message);
   }
 
   // Запускаем Telegram бота (независимо от состояния WhatsApp)

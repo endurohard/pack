@@ -1,6 +1,9 @@
 {
   "greeting": "Ассаламуалейкум!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением iT-Service.",
   "reminder": "Ассаламуалейкум!\n\nНапоминаем об оплате счета №{номер}.\n\nКлиент: {клиент}\nДата выставления: {дата}\nПросрочка: {дни}\n\nПожалуйста, произведите оплату в ближайшее время.\n\nС уважением iT-Service.",
-  "sendTimeHour": 7,
-  "sendTimeMinute": 0
+  "sendTimeHour": 10,
+  "sendTimeMinute": 0,
+  "testMode": false,
+  "testPhone": "79096194444",
+  "restartWhatsAppAfterSend": true
 }
