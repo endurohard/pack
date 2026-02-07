@@ -458,9 +458,12 @@ class WhatsAppManager {
     }
 
     try {
-      if (!fs.existsSync(imagePath)) {
-        throw new Error(`Изображение не найдено: ${imagePath}`);
+      // Валидация файла изображения
+      const imageValidation = this.validateFilePath(imagePath);
+      if (!imageValidation.valid) {
+        throw new Error(imageValidation.error);
       }
+      const absoluteImagePath = imageValidation.absolutePath;
 
       let cleanPhone = phone.replace(/[^0-9]/g, '');
       if (cleanPhone.startsWith('8')) {
@@ -471,7 +474,7 @@ class WhatsAppManager {
       }
 
       console.log(`📤 Отправка изображения на ${cleanPhone}...`);
-      console.log(`📸 Файл: ${path.basename(imagePath)} (${fs.statSync(imagePath).size} байт)`);
+      console.log(`📸 Файл: ${path.basename(absoluteImagePath)} (${imageValidation.size} байт)`);
 
       // Открываем чат
       const currentUrl = this.page.url();
@@ -584,7 +587,7 @@ class WhatsAppManager {
 
         if (imageInput) {
           console.log('📤 Загружаю изображение напрямую через input...');
-          await imageInput.uploadFile(imagePath);
+          await imageInput.uploadFile(absoluteImagePath);
           await new Promise(resolve => setTimeout(resolve, 3000));
 
           // Добавляем подпись (обязательно, чтобы не отправилось как стикер)
@@ -703,7 +706,7 @@ class WhatsAppManager {
 
       // Загружаем файл
       console.log(`📤 Загружаю изображение...`);
-      await imageInput.uploadFile(imagePath);
+      await imageInput.uploadFile(absoluteImagePath);
       console.log('✅ Изображение загружено в input');
 
       // Ждем обработки
@@ -818,9 +821,12 @@ class WhatsAppManager {
     }
 
     try {
-      if (!fs.existsSync(filePath)) {
-        throw new Error(`Файл не найден: ${filePath}`);
+      // Валидация файла
+      const fileValidation = this.validateFilePath(filePath);
+      if (!fileValidation.valid) {
+        throw new Error(fileValidation.error);
       }
+      const absoluteFilePath = fileValidation.absolutePath;
 
       let cleanPhone = phone.replace(/[^0-9]/g, '');
       if (cleanPhone.startsWith('8')) {
@@ -1010,11 +1016,8 @@ class WhatsAppManager {
         throw new Error('Кнопка прикрепления не найдена');
       }
 
-      // Проверяем что файл существует ПЕРЕД началом
-      if (!fs.existsSync(filePath)) {
-        throw new Error(`Файл не существует: ${filePath}`);
-      }
-      console.log(`✅ Файл для отправки: ${path.basename(filePath)} (${fs.statSync(filePath).size} байт)`);
+      // Файл уже провалидирован в начале метода - используем absoluteFilePath
+      console.log(`✅ Файл для отправки: ${path.basename(absoluteFilePath)} (${fileValidation.size} байт)`);
 
       console.log('📎 Нажимаю кнопку прикрепления...');
       await attachButton.click();
@@ -1701,10 +1704,10 @@ class WhatsAppManager {
 
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      console.log(`📤 Загружаю файл: ${path.basename(filePath)}...`);
+      console.log(`📤 Загружаю файл: ${path.basename(absoluteFilePath)}...`);
 
       // Загружаем файл
-      await fileInput.uploadFile(filePath);
+      await fileInput.uploadFile(absoluteFilePath);
       console.log(`✅ Файл загружен в input`);
 
       // Триггерим все необходимые события для полной эмуляции
