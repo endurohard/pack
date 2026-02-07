@@ -161,6 +161,195 @@ class WhatsAppManager {
     }
   }
 
+  /**
+   * Единый метод загрузки файла с автоматическим fallback между методами
+   *
+   * Пробует загрузить файл через uploadFile(), если WhatsApp блокирует загрузку -
+   * автоматически переключается на waitForFileChooser() метод.
+   *
+   * Порядок методов:
+   * 1. uploadFile() - прямая загрузка через input элемент
+   * 2. waitForFileChooser() - перехват нативного диалога выбора файла
+   *
+   * @param {string} filePath - Путь к файлу для загрузки
+   * @param {ElementHandle} inputElement - Input элемент для загрузки файла
+   * @param {Object} options - Дополнительные опции
+   * @param {ElementHandle} options.fallbackButton - Кнопка для открытия диалога файлов (для fallback)
+   * @param {number} options.verifyTimeout - Таймаут проверки загрузки в мс (по умолчанию 5000)
+   * @param {number} options.chooserTimeout - Таймаут для fileChooser в мс (по умолчанию 10000)
+   * @returns {Promise<{ success: boolean, method: string, filePath?: string, error?: string }>}
+   *
+   * @example
+   * const fileInput = await page.$('input[type="file"]');
+   * const attachButton = await page.$('[data-testid="clip"]');
+   * const result = await this.uploadFileWithFallback('/path/to/file.pdf', fileInput, {
+   *   fallbackButton: attachButton
+   * });
+   * if (!result.success) console.error(result.error);
+   */
+  async uploadFileWithFallback(filePath, inputElement, options = {}) {
+    const {
+      fallbackButton = null,
+      verifyTimeout = 5000,
+      chooserTimeout = 10000
+    } = options;
+
+    // Шаг 1: Валидация файла
+    console.log('🔍 Проверка файла перед загрузкой...');
+    const fileValidation = this.validateFilePath(filePath);
+    if (!fileValidation.valid) {
+      console.error(`❌ Валидация файла не пройдена: ${fileValidation.error}`);
+      return {
+        success: false,
+        method: 'validation',
+        error: fileValidation.error
+      };
+    }
+
+    const absoluteFilePath = fileValidation.absolutePath;
+    const fileName = path.basename(absoluteFilePath);
+    console.log(`📄 Файл валиден: ${fileName} (${(fileValidation.size / 1024).toFixed(1)} KB)`);
+
+    // Шаг 2: Попытка загрузки через uploadFile()
+    console.log('📤 Метод 1: Загрузка через uploadFile()...');
+    try {
+      await inputElement.uploadFile(absoluteFilePath);
+      console.log('✅ uploadFile() выполнен, проверяем принятие файла...');
+
+      // Ждем немного для обработки
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Шаг 3: Проверяем принял ли WhatsApp файл
+      const fileAccepted = await this.verifyFileUploadAccepted(verifyTimeout);
+
+      if (fileAccepted) {
+        console.log('✅ Файл успешно принят WhatsApp через uploadFile()');
+        return {
+          success: true,
+          method: 'uploadFile',
+          filePath: absoluteFilePath
+        };
+      }
+
+      console.log('⚠️ WhatsApp не принял файл через uploadFile(), пробуем fallback...');
+
+    } catch (uploadError) {
+      console.log(`⚠️ uploadFile() вызвал ошибку: ${uploadError.message}`);
+      console.log('🔄 Пробуем альтернативный метод...');
+    }
+
+    // Шаг 4: Fallback на waitForFileChooser если есть кнопка
+    if (fallbackButton) {
+      console.log('📤 Метод 2: Загрузка через waitForFileChooser()...');
+
+      const chooserResult = await this.uploadFileWithChooser(
+        absoluteFilePath,
+        fallbackButton,
+        { timeout: chooserTimeout }
+      );
+
+      if (chooserResult.success) {
+        // Дополнительная проверка принятия файла
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const fileAccepted = await this.verifyFileUploadAccepted(verifyTimeout);
+
+        if (fileAccepted) {
+          console.log('✅ Файл успешно принят WhatsApp через fileChooser');
+          return {
+            success: true,
+            method: 'fileChooser',
+            filePath: absoluteFilePath
+          };
+        }
+
+        console.log('⚠️ fileChooser загрузил файл, но WhatsApp не подтвердил принятие');
+        return {
+          success: false,
+          method: 'fileChooser',
+          error: 'Файл загружен через fileChooser, но WhatsApp не подтвердил принятие. ' +
+                 'Возможно требуется реальное взаимодействие пользователя.'
+        };
+      }
+
+      // fileChooser также не сработал
+      console.error('❌ Оба метода загрузки не сработали');
+      return {
+        success: false,
+        method: 'all',
+        error: `Все методы загрузки не сработали. Последняя ошибка: ${chooserResult.error}`
+      };
+    }
+
+    // Нет fallbackButton - возвращаем ошибку первого метода
+    console.error('❌ uploadFile() не сработал и fallbackButton не предоставлен');
+    return {
+      success: false,
+      method: 'uploadFile',
+      error: 'uploadFile() не сработал. Для автоматического fallback передайте fallbackButton в options.'
+    };
+  }
+
+  /**
+   * Проверяет, принял ли WhatsApp загруженный файл
+   *
+   * Ищет признаки успешной загрузки файла в DOM:
+   * - Превью документа (document-thumb)
+   * - Иконка документа
+   * - Кнопка отмены в области предпросмотра
+   * - Диалог предпросмотра медиа
+   *
+   * @param {number} timeout - Таймаут ожидания в мс (по умолчанию 5000)
+   * @returns {Promise<boolean>} - true если файл принят, false если нет
+   */
+  async verifyFileUploadAccepted(timeout = 5000) {
+    try {
+      await this.page.waitForFunction(
+        () => {
+          // Признаки успешной загрузки файла в области footer/preview:
+
+          // 1. Превью документа
+          const docPreview = document.querySelector('footer [data-testid="document-thumb"]');
+          if (docPreview) return true;
+
+          // 2. Иконка документа в области footer
+          const docIcon = document.querySelector('footer [data-icon="document"]');
+          if (docIcon) return true;
+
+          // 3. Кнопка отмены в footer (появляется при загрузке файла)
+          const cancelButton = document.querySelector('footer button[aria-label*="Cancel"], footer button[aria-label*="Отмена"]');
+          if (cancelButton) return true;
+
+          // 4. Диалог предпросмотра медиа
+          const mediaViewer = document.querySelector('[data-testid="media-viewer"]');
+          if (mediaViewer) return true;
+
+          // 5. Элемент с именем файла (часто появляется при загрузке)
+          const fileNameElements = Array.from(document.querySelectorAll('footer span, footer div')).filter(el => {
+            const text = el.textContent || '';
+            return text.includes('.pdf') || text.includes('.doc') || text.includes('.xls') || text.includes('.zip');
+          });
+          if (fileNameElements.length > 0) return true;
+
+          // 6. Поле ввода подписи к файлу
+          const captionInput = document.querySelector('[contenteditable="true"][data-tab="10"]');
+          if (captionInput) return true;
+
+          // 7. Кнопка отправки в режиме превью (зеленая кнопка)
+          const sendPreviewButton = document.querySelector('[data-testid="send"][aria-label*="Send"], [data-icon="send"]');
+          if (sendPreviewButton) return true;
+
+          return false;
+        },
+        { timeout }
+      );
+
+      return true;
+    } catch (error) {
+      // Таймаут - файл не принят
+      return false;
+    }
+  }
+
   async cleanupOldBrowserProcesses() {
     try {
       console.log('🔍 Проверка зависших процессов Chrome...');
