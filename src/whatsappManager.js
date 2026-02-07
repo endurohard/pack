@@ -30,20 +30,28 @@ class WhatsAppManager {
    * - Нормализует путь к абсолютному (Puppeteer требует абсолютные пути)
    * - Существование файла
    * - Размер файла (лимит WhatsApp: 100MB)
+   * - Тип файла (поддерживаемые расширения WhatsApp)
    *
    * @param {string} filePath - Путь к файлу (относительный или абсолютный)
-   * @returns {{ valid: boolean, absolutePath: string, error?: string, size?: number }} - Результат валидации
+   * @param {Object} options - Дополнительные опции
+   * @param {boolean} options.checkFileType - Проверять тип файла (по умолчанию true)
+   * @returns {{ valid: boolean, absolutePath: string, error?: string, size?: number, extension?: string }} - Результат валидации
    */
-  validateFilePath(filePath) {
+  validateFilePath(filePath, options = {}) {
+    const { checkFileType = true } = options;
+
     // Нормализуем путь к абсолютному (Puppeteer требует абсолютные пути)
     const absolutePath = path.resolve(filePath);
+    const extension = path.extname(absolutePath).toLowerCase();
 
     // Проверяем существование файла
+    // Edge Case 1: File does not exist
     if (!fs.existsSync(absolutePath)) {
       return {
         valid: false,
         absolutePath,
-        error: `Файл не существует: ${absolutePath}`
+        extension,
+        error: `File does not exist: ${absolutePath} (Файл не существует)`
       };
     }
 
@@ -52,21 +60,57 @@ class WhatsAppManager {
     const fileSizeBytes = stats.size;
     const fileSizeMB = fileSizeBytes / (1024 * 1024);
 
-    // Лимит WhatsApp: 100MB для файлов
+    // Edge Case 5: File too large (WhatsApp limit: 100MB)
     const WHATSAPP_FILE_LIMIT_MB = 100;
     if (fileSizeMB > WHATSAPP_FILE_LIMIT_MB) {
       return {
         valid: false,
         absolutePath,
         size: fileSizeBytes,
-        error: `Файл слишком большой: ${fileSizeMB.toFixed(2)}MB (лимит WhatsApp: ${WHATSAPP_FILE_LIMIT_MB}MB)`
+        extension,
+        error: `File is too large: ${fileSizeMB.toFixed(2)}MB (WhatsApp limit: ${WHATSAPP_FILE_LIMIT_MB}MB). ` +
+               `Файл слишком большой.`
       };
+    }
+
+    // Edge Case 6: Unsupported file type
+    // WhatsApp поддерживает: изображения, видео, аудио, документы
+    if (checkFileType) {
+      const SUPPORTED_EXTENSIONS = [
+        // Изображения
+        '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg',
+        // Видео
+        '.mp4', '.3gp', '.avi', '.mov', '.mkv', '.webm',
+        // Аудио
+        '.mp3', '.wav', '.ogg', '.opus', '.aac', '.m4a',
+        // Документы
+        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+        '.txt', '.csv', '.rtf', '.odt', '.ods', '.odp',
+        // Архивы
+        '.zip', '.rar', '.7z', '.tar', '.gz',
+        // Другие
+        '.apk', '.exe', '.dmg'
+      ];
+
+      if (!SUPPORTED_EXTENSIONS.includes(extension)) {
+        return {
+          valid: false,
+          absolutePath,
+          size: fileSizeBytes,
+          extension,
+          error: `Unsupported file type: ${extension}. ` +
+                 `Supported types: images (jpg, png, gif), videos (mp4, mov), audio (mp3, wav), ` +
+                 `documents (pdf, doc, xls), archives (zip, rar). ` +
+                 `Неподдерживаемый тип файла.`
+        };
+      }
     }
 
     return {
       valid: true,
       absolutePath,
-      size: fileSizeBytes
+      size: fileSizeBytes,
+      extension
     };
   }
 
@@ -129,26 +173,31 @@ class WhatsAppManager {
       };
 
     } catch (error) {
-      // Специальная обработка таймаута
+      // Edge Case 7: Upload timeout - file chooser dialog did not appear
       if (error.message && error.message.includes('timeout')) {
-        const errorMessage = `FileChooser timeout: диалог выбора файла не появился за ${timeout}ms. ` +
-          'Возможно, кнопка не открывает диалог выбора файла или элемент неактивен.';
+        const errorMessage = `Upload timeout: file chooser dialog did not appear within ${timeout}ms. ` +
+          `Possibly the button does not open a file dialog or the element is inactive. ` +
+          `(FileChooser timeout - диалог выбора файла не появился)`;
         console.error(`❌ ${errorMessage}`);
         return {
           success: false,
           method: 'fileChooser',
-          error: errorMessage
+          error: errorMessage,
+          isTimeout: true
         };
       }
 
-      // Обработка случая когда уже есть активный fileChooser
+      // Edge Case 4: Multiple file choosers active - cancel existing before opening new
       if (error.message && error.message.includes('Cannot accept')) {
-        const errorMessage = 'FileChooser уже активен. Отмените текущий диалог перед открытием нового.';
+        const errorMessage = 'Multiple file choosers active: cannot accept file. ' +
+          'Cancel the current dialog before opening a new one. ' +
+          '(FileChooser уже активен)';
         console.error(`❌ ${errorMessage}`);
         return {
           success: false,
           method: 'fileChooser',
-          error: errorMessage
+          error: errorMessage,
+          isMultipleChoosers: true
         };
       }
 
@@ -280,12 +329,191 @@ class WhatsAppManager {
       };
     }
 
-    // Нет fallbackButton - возвращаем ошибку первого метода
+    // Edge Case 3: File input element not found - no fallback available
     console.error('❌ uploadFile() не сработал и fallbackButton не предоставлен');
     return {
       success: false,
       method: 'uploadFile',
-      error: 'uploadFile() не сработал. Для автоматического fallback передайте fallbackButton в options.'
+      error: 'File input element not working and no fallback button provided. ' +
+             'uploadFile() не сработал. Для автоматического fallback передайте fallbackButton в options.'
+    };
+  }
+
+  /**
+   * Загрузка файла с автоматическим повтором при таймауте
+   *
+   * Edge Case 7: Upload timeout - Implement retry mechanism
+   *
+   * Оборачивает uploadFileWithFallback с логикой повторных попыток.
+   * При таймауте автоматически повторяет загрузку указанное количество раз.
+   *
+   * @param {string} filePath - Путь к файлу для загрузки
+   * @param {ElementHandle} inputElement - Input элемент для загрузки файла
+   * @param {Object} options - Дополнительные опции
+   * @param {ElementHandle} options.fallbackButton - Кнопка для открытия диалога файлов (для fallback)
+   * @param {number} options.maxRetries - Максимальное количество повторов при таймауте (по умолчанию 2)
+   * @param {number} options.retryDelay - Задержка между повторами в мс (по умолчанию 2000)
+   * @param {number} options.verifyTimeout - Таймаут проверки загрузки в мс (по умолчанию 5000)
+   * @param {number} options.chooserTimeout - Таймаут для fileChooser в мс (по умолчанию 10000)
+   * @returns {Promise<{ success: boolean, method: string, filePath?: string, error?: string, attempts?: number }>}
+   *
+   * @example
+   * const result = await this.uploadFileWithRetry('/path/to/file.pdf', fileInput, {
+   *   fallbackButton: attachButton,
+   *   maxRetries: 3
+   * });
+   */
+  async uploadFileWithRetry(filePath, inputElement, options = {}) {
+    const {
+      maxRetries = 2,
+      retryDelay = 2000,
+      ...uploadOptions
+    } = options;
+
+    let lastResult = null;
+    let attempts = 0;
+
+    for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+      attempts = attempt;
+      console.log(`📤 Попытка загрузки файла ${attempt}/${maxRetries + 1}...`);
+
+      lastResult = await this.uploadFileWithFallback(filePath, inputElement, uploadOptions);
+
+      if (lastResult.success) {
+        console.log(`✅ Файл успешно загружен с попытки ${attempt}`);
+        return {
+          ...lastResult,
+          attempts
+        };
+      }
+
+      // Проверяем, был ли это таймаут - только тогда повторяем
+      const isTimeout = lastResult.isTimeout ||
+                       (lastResult.error && lastResult.error.toLowerCase().includes('timeout'));
+
+      if (!isTimeout) {
+        // Не таймаут - не имеет смысла повторять
+        console.log(`❌ Ошибка не связана с таймаутом, повтор не требуется: ${lastResult.error}`);
+        return {
+          ...lastResult,
+          attempts
+        };
+      }
+
+      // Таймаут - пробуем снова если есть попытки
+      if (attempt < maxRetries + 1) {
+        console.log(`⏱️ Upload timeout detected, retrying in ${retryDelay}ms... ` +
+                   `(attempt ${attempt}/${maxRetries + 1})`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
+    }
+
+    // Все попытки исчерпаны
+    console.error(`❌ Upload failed after ${attempts} attempts due to timeout`);
+    return {
+      success: false,
+      method: 'retry',
+      error: `Upload timeout: all ${attempts} attempts failed. ` +
+             `Last error: ${lastResult?.error || 'Unknown error'}. ` +
+             `Таймаут загрузки: все ${attempts} попыток не удались.`,
+      attempts
+    };
+  }
+
+  /**
+   * Поиск input элемента для загрузки файлов с использованием альтернативных селекторов
+   *
+   * Edge Case 3: File input element not found - search for alternative input selectors
+   *
+   * Пробует найти input для файлов через несколько селекторов в порядке приоритета.
+   * Если не найден ни один input, возвращает null с описанием ошибки.
+   *
+   * @param {Object} options - Опции поиска
+   * @param {string} options.type - Тип файла: 'image', 'document', 'any' (по умолчанию 'any')
+   * @returns {Promise<{ input: ElementHandle|null, selector: string|null, error?: string }>}
+   *
+   * @example
+   * const { input, selector, error } = await this.findFileInput({ type: 'image' });
+   * if (!input) {
+   *   console.error(error);
+   * }
+   */
+  async findFileInput(options = {}) {
+    const { type = 'any' } = options;
+
+    // Селекторы для разных типов файлов в порядке приоритета
+    const imageSelectors = [
+      'input[type="file"][accept*="image"]',
+      'input[type="file"][accept*="video"]',
+      'footer input[type="file"]',
+      '[data-testid="attach-image"] input[type="file"]'
+    ];
+
+    const documentSelectors = [
+      'input[type="file"][accept="*"]',
+      'input[type="file"]:not([accept*="image"]):not([accept*="video"])',
+      'footer input[type="file"]',
+      '[data-testid="attach-document"] input[type="file"]'
+    ];
+
+    const anySelectors = [
+      'input[type="file"]',
+      'footer input[type="file"]',
+      '[data-testid*="attach"] input[type="file"]'
+    ];
+
+    const selectors = type === 'image' ? imageSelectors :
+                      type === 'document' ? documentSelectors :
+                      anySelectors;
+
+    // Пробуем найти input по каждому селектору
+    for (const selector of selectors) {
+      const inputs = await this.page.$$(selector);
+      if (inputs.length > 0) {
+        console.log(`✅ Найден input для файлов: ${selector} (${inputs.length} элементов)`);
+        return {
+          input: inputs[0],
+          selector,
+          allInputs: inputs
+        };
+      }
+    }
+
+    // Альтернативный поиск через evaluate
+    const foundViaEvaluate = await this.page.evaluate((fileType) => {
+      const inputs = Array.from(document.querySelectorAll('input[type="file"]'));
+      const results = inputs.map(input => ({
+        accept: input.accept,
+        hasParent: !!input.parentElement,
+        parentId: input.parentElement?.id || '',
+        parentTestId: input.parentElement?.getAttribute('data-testid') || ''
+      }));
+      return results;
+    }, type);
+
+    if (foundViaEvaluate.length > 0) {
+      // Есть input'ы, но они не нашлись по селекторам - пробуем получить напрямую
+      const allInputs = await this.page.$$('input[type="file"]');
+      if (allInputs.length > 0) {
+        console.log(`✅ Найден input через evaluate (${allInputs.length} элементов)`);
+        return {
+          input: allInputs[0],
+          selector: 'input[type="file"]',
+          allInputs
+        };
+      }
+    }
+
+    // Input не найден
+    const errorMessage = `File input element not found. ` +
+                        `Tried ${selectors.length} selectors for type '${type}'. ` +
+                        `Элемент input для файлов не найден.`;
+    console.error(`❌ ${errorMessage}`);
+
+    return {
+      input: null,
+      selector: null,
+      error: errorMessage
     };
   }
 
