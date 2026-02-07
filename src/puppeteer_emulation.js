@@ -141,9 +141,86 @@ async function simulateFileInputPressRelease(page, element, options = {}) {
   return coords;
 }
 
+/**
+ * Триггерит DOM события для файлового input после установки файлов
+ * Используется для симуляции реального пользовательского взаимодействия
+ * после программной установки файлов через DataTransfer API
+ *
+ * Выполняет:
+ * 1. Событие 'input' (ввод данных)
+ * 2. Событие 'change' (изменение значения)
+ * 3. Опционально фокус/blur для полной эмуляции
+ *
+ * @param {import('puppeteer').Page} page - Страница Puppeteer
+ * @param {import('puppeteer').ElementHandle} element - Файловый input элемент
+ * @param {Object} options - Опции
+ * @param {boolean} [options.triggerFocus=false] - Триггерить события focus/blur
+ * @param {number} [options.eventDelay=50] - Задержка между событиями (мс)
+ * @returns {Promise<{eventsTriggered: string[], success: boolean}>} Результат триггера событий
+ */
+async function triggerFileInputEvents(page, element, options = {}) {
+  const { triggerFocus = false, eventDelay = 50 } = options;
+
+  console.log('📤 Триггер DOM событий для файлового input...');
+
+  const eventsTriggered = [];
+
+  try {
+    // Триггерим события внутри контекста браузера
+    const result = await element.evaluate((input, opts) => {
+      const triggered = [];
+
+      // Опционально: фокус на элементе
+      if (opts.triggerFocus) {
+        const focusEvent = new FocusEvent('focus', { bubbles: true });
+        input.dispatchEvent(focusEvent);
+        triggered.push('focus');
+      }
+
+      // Событие input (происходит при вводе данных)
+      const inputEvent = new Event('input', { bubbles: true, cancelable: true });
+      input.dispatchEvent(inputEvent);
+      triggered.push('input');
+
+      // Событие change (происходит при изменении значения и потере фокуса)
+      const changeEvent = new Event('change', { bubbles: true, cancelable: true });
+      input.dispatchEvent(changeEvent);
+      triggered.push('change');
+
+      // Опционально: потеря фокуса
+      if (opts.triggerFocus) {
+        const blurEvent = new FocusEvent('blur', { bubbles: true });
+        input.dispatchEvent(blurEvent);
+        triggered.push('blur');
+      }
+
+      return triggered;
+    }, { triggerFocus });
+
+    eventsTriggered.push(...result);
+
+    // Задержка для обработки событий
+    await new Promise(resolve => setTimeout(resolve, eventDelay));
+
+    console.log(`✅ DOM события триггерены: ${eventsTriggered.join(', ')}`);
+
+    return {
+      eventsTriggered,
+      success: true
+    };
+  } catch (error) {
+    console.log(`❌ Ошибка триггера DOM событий: ${error.message}`);
+    return {
+      eventsTriggered,
+      success: false
+    };
+  }
+}
+
 module.exports = {
   moveToFileInput,
   simulateFileInputClick,
   hoverFileInput,
-  simulateFileInputPressRelease
+  simulateFileInputPressRelease,
+  triggerFileInputEvents
 };
