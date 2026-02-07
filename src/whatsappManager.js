@@ -350,6 +350,161 @@ class WhatsAppManager {
     }
   }
 
+  /**
+   * Комплексная проверка принятия файла WhatsApp с детализацией найденных индикаторов
+   *
+   * Расширенная версия verifyFileUploadAccepted, которая возвращает не только
+   * статус принятия, но и список конкретных DOM-индикаторов, подтверждающих загрузку.
+   *
+   * Проверяемые индикаторы:
+   * - document-thumb: превью документа в области предпросмотра
+   * - document-icon: иконка документа
+   * - cancel-button: кнопка отмены (появляется при загрузке файла)
+   * - media-viewer: диалог предпросмотра медиа
+   * - caption-input: поле ввода подписи к файлу
+   * - send-button: кнопка отправки в режиме превью
+   * - file-name: элемент с расширением файла
+   * - image-preview: превью изображения
+   *
+   * @param {Object} options - Опции проверки
+   * @param {number} options.timeout - Таймаут ожидания в мс (по умолчанию 5000)
+   * @param {boolean} options.waitForIndicator - Ожидать появления индикатора (по умолчанию true)
+   * @returns {Promise<{ accepted: boolean, indicators: string[], details: Object }>}
+   *
+   * @example
+   * const result = await this.verifyFileAccepted({ timeout: 3000 });
+   * if (result.accepted) {
+   *   console.log('Файл принят, найдены индикаторы:', result.indicators);
+   * } else {
+   *   console.log('Файл не принят WhatsApp');
+   * }
+   */
+  async verifyFileAccepted(options = {}) {
+    const { timeout = 5000, waitForIndicator = true } = options;
+
+    // Функция для проверки индикаторов в DOM
+    const checkIndicators = async () => {
+      return await this.page.evaluate(() => {
+        const indicators = [];
+        const details = {};
+
+        // 1. Превью документа (document-thumb)
+        const docPreview = document.querySelector('footer [data-testid="document-thumb"]');
+        if (docPreview) {
+          indicators.push('document-thumb');
+          details['document-thumb'] = { found: true, selector: 'footer [data-testid="document-thumb"]' };
+        }
+
+        // 2. Иконка документа
+        const docIcon = document.querySelector('footer [data-icon="document"]');
+        if (docIcon) {
+          indicators.push('document-icon');
+          details['document-icon'] = { found: true, selector: 'footer [data-icon="document"]' };
+        }
+
+        // 3. Кнопка отмены в области превью
+        const cancelButtonEn = document.querySelector('footer button[aria-label*="Cancel"]');
+        const cancelButtonRu = document.querySelector('footer button[aria-label*="Отмена"]');
+        const cancelButton = cancelButtonEn || cancelButtonRu;
+        if (cancelButton) {
+          indicators.push('cancel-button');
+          details['cancel-button'] = {
+            found: true,
+            selector: cancelButtonEn ? 'footer button[aria-label*="Cancel"]' : 'footer button[aria-label*="Отмена"]',
+            label: cancelButton.getAttribute('aria-label')
+          };
+        }
+
+        // 4. Диалог предпросмотра медиа
+        const mediaViewer = document.querySelector('[data-testid="media-viewer"]');
+        if (mediaViewer) {
+          indicators.push('media-viewer');
+          details['media-viewer'] = { found: true, selector: '[data-testid="media-viewer"]' };
+        }
+
+        // 5. Поле ввода подписи к файлу
+        const captionInput = document.querySelector('[contenteditable="true"][data-tab="10"]');
+        const mediaCaptionInput = document.querySelector('[data-testid="media-caption-input"]');
+        const foundCaptionInput = captionInput || mediaCaptionInput;
+        if (foundCaptionInput) {
+          indicators.push('caption-input');
+          details['caption-input'] = {
+            found: true,
+            selector: captionInput ? '[contenteditable="true"][data-tab="10"]' : '[data-testid="media-caption-input"]'
+          };
+        }
+
+        // 6. Кнопка отправки в режиме превью
+        const sendButton = document.querySelector('[data-testid="send"][aria-label*="Send"]') ||
+                          document.querySelector('[data-icon="send"]');
+        if (sendButton) {
+          indicators.push('send-button');
+          details['send-button'] = { found: true };
+        }
+
+        // 7. Элемент с расширением файла (признак загрузки документа)
+        const fileExtensions = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.zip', '.rar', '.txt'];
+        const allFooterElements = Array.from(document.querySelectorAll('footer span, footer div'));
+        for (const el of allFooterElements) {
+          const text = (el.textContent || '').toLowerCase();
+          const foundExt = fileExtensions.find(ext => text.includes(ext));
+          if (foundExt) {
+            indicators.push('file-name');
+            details['file-name'] = { found: true, extension: foundExt, text: el.textContent.trim().substring(0, 50) };
+            break;
+          }
+        }
+
+        // 8. Превью изображения
+        const imagePreview = document.querySelector('footer img[src*="blob:"]') ||
+                            document.querySelector('[data-testid="image-thumb"]');
+        if (imagePreview) {
+          indicators.push('image-preview');
+          details['image-preview'] = { found: true };
+        }
+
+        // Определяем статус принятия файла
+        const accepted = indicators.length > 0;
+
+        return { accepted, indicators, details };
+      });
+    };
+
+    // Если нужно ожидать появления индикатора
+    if (waitForIndicator) {
+      try {
+        await this.page.waitForFunction(
+          () => {
+            // Минимальный набор проверок для waitForFunction
+            const docPreview = document.querySelector('footer [data-testid="document-thumb"]');
+            const docIcon = document.querySelector('footer [data-icon="document"]');
+            const cancelButton = document.querySelector('footer button[aria-label*="Cancel"], footer button[aria-label*="Отмена"]');
+            const mediaViewer = document.querySelector('[data-testid="media-viewer"]');
+            const captionInput = document.querySelector('[contenteditable="true"][data-tab="10"]') ||
+                                document.querySelector('[data-testid="media-caption-input"]');
+            const imagePreview = document.querySelector('footer img[src*="blob:"]') ||
+                                document.querySelector('[data-testid="image-thumb"]');
+
+            return docPreview || docIcon || cancelButton || mediaViewer || captionInput || imagePreview;
+          },
+          { timeout }
+        );
+
+        // Индикатор найден - получаем детальную информацию
+        const result = await checkIndicators();
+        return result;
+
+      } catch (error) {
+        // Таймаут - проверяем текущее состояние
+        const result = await checkIndicators();
+        return result;
+      }
+    }
+
+    // Без ожидания - просто проверяем текущее состояние
+    return await checkIndicators();
+  }
+
   async cleanupOldBrowserProcesses() {
     try {
       console.log('🔍 Проверка зависших процессов Chrome...');
