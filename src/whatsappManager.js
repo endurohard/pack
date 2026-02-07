@@ -70,6 +70,97 @@ class WhatsAppManager {
     };
   }
 
+  /**
+   * Загрузка файла с использованием waitForFileChooser API
+   *
+   * Альтернативный метод загрузки файла, который перехватывает нативный
+   * диалог выбора файла. Используется когда прямой uploadFile() заблокирован WhatsApp.
+   *
+   * Важно: waitForFileChooser() должен быть вызван ДО того, как откроется диалог.
+   * Этот метод использует Promise.all для синхронизации клика и перехвата.
+   *
+   * @param {string} filePath - Абсолютный путь к файлу для загрузки
+   * @param {ElementHandle} buttonElement - Элемент кнопки, открывающей диалог выбора файла
+   * @param {Object} options - Дополнительные опции
+   * @param {number} options.timeout - Таймаут ожидания в мс (по умолчанию 10000)
+   * @returns {Promise<{ success: boolean, method: string, error?: string }>}
+   *
+   * @example
+   * const attachButton = await page.$('[data-testid="clip"]');
+   * const result = await this.uploadFileWithChooser('/path/to/file.pdf', attachButton);
+   * if (!result.success) console.error(result.error);
+   */
+  async uploadFileWithChooser(filePath, buttonElement, options = {}) {
+    const { timeout = 10000 } = options;
+
+    // Валидируем путь к файлу
+    const fileValidation = this.validateFilePath(filePath);
+    if (!fileValidation.valid) {
+      return {
+        success: false,
+        method: 'fileChooser',
+        error: fileValidation.error
+      };
+    }
+
+    const absoluteFilePath = fileValidation.absolutePath;
+
+    try {
+      console.log('📂 Используем waitForFileChooser для загрузки файла...');
+
+      // Важно: waitForFileChooser должен быть вызван ПЕРЕД кликом на кнопку
+      // Promise.all гарантирует синхронность этих операций
+      const [fileChooser] = await Promise.all([
+        this.page.waitForFileChooser({ timeout }),
+        buttonElement.click()
+      ]);
+
+      console.log(`📎 FileChooser перехвачен, принимаем файл: ${path.basename(absoluteFilePath)}`);
+
+      // Принимаем файл через fileChooser
+      await fileChooser.accept([absoluteFilePath]);
+
+      console.log('✅ Файл успешно загружен через FileChooser');
+
+      return {
+        success: true,
+        method: 'fileChooser',
+        filePath: absoluteFilePath
+      };
+
+    } catch (error) {
+      // Специальная обработка таймаута
+      if (error.message && error.message.includes('timeout')) {
+        const errorMessage = `FileChooser timeout: диалог выбора файла не появился за ${timeout}ms. ` +
+          'Возможно, кнопка не открывает диалог выбора файла или элемент неактивен.';
+        console.error(`❌ ${errorMessage}`);
+        return {
+          success: false,
+          method: 'fileChooser',
+          error: errorMessage
+        };
+      }
+
+      // Обработка случая когда уже есть активный fileChooser
+      if (error.message && error.message.includes('Cannot accept')) {
+        const errorMessage = 'FileChooser уже активен. Отмените текущий диалог перед открытием нового.';
+        console.error(`❌ ${errorMessage}`);
+        return {
+          success: false,
+          method: 'fileChooser',
+          error: errorMessage
+        };
+      }
+
+      console.error('❌ Ошибка загрузки через FileChooser:', error.message);
+      return {
+        success: false,
+        method: 'fileChooser',
+        error: error.message
+      };
+    }
+  }
+
   async cleanupOldBrowserProcesses() {
     try {
       console.log('🔍 Проверка зависших процессов Chrome...');
