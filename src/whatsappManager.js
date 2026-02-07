@@ -4,8 +4,18 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { createRequire } from 'module';
 import pkg from 'whatsapp-web.js';
 const { MessageMedia } = pkg;
+
+// Импорт функций эмуляции пользовательских действий
+const require = createRequire(import.meta.url);
+const {
+  moveToFileInput,
+  simulateFileInputClick,
+  hoverFileInput,
+  triggerFileInputEvents
+} = require('./puppeteer_emulation.js');
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -1249,9 +1259,34 @@ class WhatsAppManager {
         }
 
         if (imageInput) {
-          console.log('📤 Загружаю изображение напрямую через input...');
-          await imageInput.uploadFile(absoluteImagePath);
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          console.log('📤 Загружаю изображение напрямую через input с эмуляцией...');
+
+          // Используем эмуляцию пользовательского клика перед загрузкой
+          try {
+            await hoverFileInput(this.page, imageInput, 300);
+          } catch (emulationError) {
+            console.log('⚠️  Hover эмуляция не удалась, продолжаем загрузку...');
+          }
+
+          // Используем uploadFileWithFallback для надежной загрузки
+          const uploadResult = await this.uploadFileWithFallback(absoluteImagePath, imageInput, {
+            fallbackButton: attachButton || null,
+            verifyTimeout: 5000,
+            chooserTimeout: 10000
+          });
+
+          if (!uploadResult.success) {
+            console.error(`❌ Не удалось загрузить изображение: ${uploadResult.error}`);
+            throw new Error(uploadResult.error);
+          }
+
+          console.log(`✅ Изображение загружено методом: ${uploadResult.method}`);
+
+          // Верифицируем загрузку с детальной информацией
+          const verifyResult = await this.verifyFileAccepted({ timeout: 3000, waitForIndicator: true });
+          console.log(`📋 Верификация загрузки: ${verifyResult.accepted ? 'успешно' : 'не подтверждено'}, индикаторы: ${verifyResult.indicators.join(', ') || 'нет'}`);
+
+          await new Promise(resolve => setTimeout(resolve, 1000));
 
           // Добавляем подпись (обязательно, чтобы не отправилось как стикер)
           try {
@@ -1367,17 +1402,47 @@ class WhatsAppManager {
         throw new Error('Input для изображения не найден');
       }
 
-      // Загружаем файл
-      console.log(`📤 Загружаю изображение...`);
-      await imageInput.uploadFile(absoluteImagePath);
-      console.log('✅ Изображение загружено в input');
+      // Загружаем файл с эмуляцией пользовательского действия
+      console.log(`📤 Загружаю изображение с эмуляцией...`);
 
-      // Ждем обработки
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Эмуляция наведения курсора на input перед загрузкой
+      try {
+        await hoverFileInput(this.page, imageInput, 200);
+      } catch (emulationError) {
+        console.log('⚠️  Hover эмуляция не удалась, продолжаем загрузку...');
+      }
+
+      // Используем uploadFileWithFallback для надежной загрузки с fallback
+      const uploadResult = await this.uploadFileWithFallback(absoluteImagePath, imageInput, {
+        fallbackButton: attachButton,
+        verifyTimeout: 5000,
+        chooserTimeout: 10000
+      });
+
+      if (!uploadResult.success) {
+        console.error(`❌ Не удалось загрузить изображение: ${uploadResult.error}`);
+        throw new Error(uploadResult.error);
+      }
+
+      console.log(`✅ Изображение загружено в input методом: ${uploadResult.method}`);
+
+      // Триггерим DOM события для полной эмуляции
+      try {
+        await triggerFileInputEvents(this.page, imageInput, { triggerFocus: true, eventDelay: 100 });
+      } catch (eventError) {
+        console.log('⚠️  Триггер DOM событий не удался, продолжаем...');
+      }
+
+      // Верифицируем загрузку с детальной информацией
+      const verifyResult = await this.verifyFileAccepted({ timeout: 5000, waitForIndicator: true });
+      console.log(`📋 Верификация загрузки: ${verifyResult.accepted ? 'успешно' : 'не подтверждено'}`);
+      if (verifyResult.indicators.length > 0) {
+        console.log(`   Найденные индикаторы: ${verifyResult.indicators.join(', ')}`);
+      }
 
       // Ждем появления окна предпросмотра
       console.log('⏳ Ожидание окна предпросмотра...');
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 1500));
 
       // Добавляем подпись (обязательно, чтобы не отправилось как стикер)
       console.log('💬 Добавление подписи к изображению...');
@@ -2367,25 +2432,54 @@ class WhatsAppManager {
 
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      console.log(`📤 Загружаю файл: ${path.basename(absoluteFilePath)}...`);
+      console.log(`📤 Загружаю файл с эмуляцией: ${path.basename(absoluteFilePath)}...`);
 
-      // Загружаем файл
-      await fileInput.uploadFile(absoluteFilePath);
-      console.log(`✅ Файл загружен в input`);
+      // Эмуляция наведения курсора на input перед загрузкой
+      try {
+        await hoverFileInput(this.page, fileInput, 200);
+      } catch (emulationError) {
+        console.log('⚠️  Hover эмуляция не удалась, продолжаем загрузку...');
+      }
 
-      // Триггерим все необходимые события для полной эмуляции
-      console.log('🔄 Триггер событий input, change, blur...');
-      await this.page.evaluate((el) => {
-        // Триггерим события как при реальном выборе файла
-        const events = ['input', 'change', 'blur'];
-        events.forEach(eventType => {
-          const event = new Event(eventType, { bubbles: true, cancelable: true });
-          el.dispatchEvent(event);
-        });
-      }, fileInput);
+      // Используем uploadFileWithFallback для надежной загрузки с fallback
+      const uploadResult = await this.uploadFileWithFallback(absoluteFilePath, fileInput, {
+        fallbackButton: attachButton,
+        verifyTimeout: 5000,
+        chooserTimeout: 10000
+      });
+
+      if (!uploadResult.success) {
+        console.error(`❌ Не удалось загрузить файл: ${uploadResult.error}`);
+        throw new Error(uploadResult.error);
+      }
+
+      console.log(`✅ Файл загружен в input методом: ${uploadResult.method}`);
+
+      // Триггерим все необходимые DOM события для полной эмуляции используя функцию из puppeteer_emulation
+      console.log('🔄 Триггер DOM событий для файлового input...');
+      try {
+        await triggerFileInputEvents(this.page, fileInput, { triggerFocus: true, eventDelay: 100 });
+      } catch (eventError) {
+        console.log('⚠️  Триггер DOM событий не удался, пробуем альтернативный способ...');
+        // Fallback на ручной триггер
+        await this.page.evaluate((el) => {
+          const events = ['input', 'change', 'blur'];
+          events.forEach(eventType => {
+            const event = new Event(eventType, { bubbles: true, cancelable: true });
+            el.dispatchEvent(event);
+          });
+        }, fileInput);
+      }
+
+      // Верифицируем загрузку с детальной информацией
+      const verifyResult = await this.verifyFileAccepted({ timeout: 5000, waitForIndicator: true });
+      console.log(`📋 Верификация загрузки: ${verifyResult.accepted ? 'успешно' : 'не подтверждено'}`);
+      if (verifyResult.indicators.length > 0) {
+        console.log(`   Найденные индикаторы: ${verifyResult.indicators.join(', ')}`);
+      }
 
       // Даем время WhatsApp обработать файл
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 1500));
 
       // Проверяем появление модального окна предпросмотра - используем более надежную проверку
       console.log('⏳ Ожидание модального окна предпросмотра...');
