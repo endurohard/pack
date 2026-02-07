@@ -23,6 +23,53 @@ class WhatsAppManager {
     }
   }
 
+  /**
+   * Валидация пути к файлу с нормализацией и проверкой существования
+   *
+   * Проверяет:
+   * - Нормализует путь к абсолютному (Puppeteer требует абсолютные пути)
+   * - Существование файла
+   * - Размер файла (лимит WhatsApp: 100MB)
+   *
+   * @param {string} filePath - Путь к файлу (относительный или абсолютный)
+   * @returns {{ valid: boolean, absolutePath: string, error?: string, size?: number }} - Результат валидации
+   */
+  validateFilePath(filePath) {
+    // Нормализуем путь к абсолютному (Puppeteer требует абсолютные пути)
+    const absolutePath = path.resolve(filePath);
+
+    // Проверяем существование файла
+    if (!fs.existsSync(absolutePath)) {
+      return {
+        valid: false,
+        absolutePath,
+        error: `Файл не существует: ${absolutePath}`
+      };
+    }
+
+    // Получаем информацию о файле
+    const stats = fs.statSync(absolutePath);
+    const fileSizeBytes = stats.size;
+    const fileSizeMB = fileSizeBytes / (1024 * 1024);
+
+    // Лимит WhatsApp: 100MB для файлов
+    const WHATSAPP_FILE_LIMIT_MB = 100;
+    if (fileSizeMB > WHATSAPP_FILE_LIMIT_MB) {
+      return {
+        valid: false,
+        absolutePath,
+        size: fileSizeBytes,
+        error: `Файл слишком большой: ${fileSizeMB.toFixed(2)}MB (лимит WhatsApp: ${WHATSAPP_FILE_LIMIT_MB}MB)`
+      };
+    }
+
+    return {
+      valid: true,
+      absolutePath,
+      size: fileSizeBytes
+    };
+  }
+
   async cleanupOldBrowserProcesses() {
     try {
       console.log('🔍 Проверка зависших процессов Chrome...');
