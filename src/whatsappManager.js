@@ -1196,115 +1196,55 @@ class WhatsAppManager {
           // Ищем и кликаем кнопку отправки в модальном окне предпросмотра
           console.log('🔍 Поиск кнопки отправки в окне предпросмотра файла...');
 
-          // РЕАЛЬНАЯ ЭМУЛЯЦИЯ ПОЛЬЗОВАТЕЛЯ: низкоуровневые события мыши через CDP
-          console.log('👤 Полная эмуляция действий реального пользователя...');
-          try {
-            // Находим кнопку отправки
-            const buttonInfo = await this.page.evaluate(() => {
-              const buttons = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"]'));
-              const rightSideButtons = buttons.filter(btn => {
-                const rect = btn.getBoundingClientRect();
-                return rect.left > window.innerWidth * 0.4 && rect.width > 0 && rect.height > 0;
-              });
+          // ПОЛУАВТОМАТИЧЕСКИЙ РЕЖИМ: Открываем окно предпросмотра и ждем действий пользователя
+          console.log('👤 Полуавтоматический режим: файл готов к отправке');
+          console.log('⏳ Ожидание ручной отправки пользователем...');
+          console.log('💡 ИНСТРУКЦИЯ: Откройте браузер и нажмите кнопку отправки в WhatsApp Web');
 
-              const sendButton = rightSideButtons.find(btn => {
-                const hasIcon = btn.querySelector('[data-icon*="send"]');
-                return hasIcon !== null;
-              });
+          // Ждем 2 минуты, чтобы пользователь мог вручную нажать кнопку отправки
+          const maxWaitTime = 120000; // 2 минуты
+          const checkInterval = 2000; // Проверяем каждые 2 секунды
+          let elapsed = 0;
 
-              if (sendButton) {
-                const rect = sendButton.getBoundingClientRect();
-                return {
-                  found: true,
-                  x: rect.left + rect.width / 2,
-                  y: rect.top + rect.height / 2,
-                  width: rect.width,
-                  height: rect.height
-                };
-              }
-              return { found: false };
+          while (elapsed < maxWaitTime) {
+            await new Promise(resolve => setTimeout(resolve, checkInterval));
+            elapsed += checkInterval;
+
+            // Проверяем, отправился ли файл
+            const fileSent = await this.page.evaluate(() => {
+              const messages = Array.from(document.querySelectorAll('[data-testid="msg-container"]'));
+              if (messages.length === 0) return false;
+              const lastMessage = messages[messages.length - 1];
+              const hasDocument = lastMessage.querySelector('[data-testid="document-with-caption"], .document-thumb, [data-icon="document"]');
+              return hasDocument !== null;
             });
 
-            if (buttonInfo.found) {
-              console.log(`  Кнопка найдена: ${Math.round(buttonInfo.width)}x${Math.round(buttonInfo.height)} на (${Math.round(buttonInfo.x)}, ${Math.round(buttonInfo.y)})`);
-
-              // МАКСИМАЛЬНО РЕАЛИСТИЧНАЯ ЭМУЛЯЦИЯ МЫШИ
-              console.log('  1. Медленное движение курсора к кнопке...');
-
-              // Начинаем с позиции вне кнопки
-              const startX = buttonInfo.x - 100;
-              const startY = buttonInfo.y - 50;
-
-              // Двигаем мышь к кнопке с небольшими случайными отклонениями (как у человека)
-              const steps = 15;
-              for (let i = 0; i <= steps; i++) {
-                const progress = i / steps;
-                // Добавляем небольшое случайное отклонение на каждом шаге
-                const randomX = (Math.random() - 0.5) * 3;
-                const randomY = (Math.random() - 0.5) * 3;
-                const currentX = startX + (buttonInfo.x - startX) * progress + randomX;
-                const currentY = startY + (buttonInfo.y - startY) * progress + randomY;
-
-                await this.page.mouse.move(currentX, currentY);
-                await new Promise(resolve => setTimeout(resolve, 20 + Math.random() * 10));
-              }
-
-              console.log('  2. Наведение на кнопку (hover)...');
-              await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 100));
-
-              // Реальное нажатие мыши: mousedown + небольшая задержка + mouseup
-              console.log('  3. Нажатие кнопки мыши (mousedown)...');
-              await this.page.mouse.down();
-              await new Promise(resolve => setTimeout(resolve, 80 + Math.random() * 40)); // Человек держит кнопку ~80-120мс
-
-              console.log('  4. Отпускание кнопки мыши (mouseup)...');
-              await this.page.mouse.up();
-
-              // Ждем немного после клика
-              await new Promise(resolve => setTimeout(resolve, 500));
-
-              console.log('  5. Небольшое движение мыши после клика (как у пользователя)...');
-              await this.page.mouse.move(buttonInfo.x + 5, buttonInfo.y - 3);
-              await new Promise(resolve => setTimeout(resolve, 3000));
-
-              // Проверяем результат
-              const fileSent = await this.page.evaluate(() => {
-                const messages = Array.from(document.querySelectorAll('[data-testid="msg-container"]'));
-                if (messages.length === 0) return false;
-                const lastMessage = messages[messages.length - 1];
-                const hasDocument = lastMessage.querySelector('[data-testid="document-with-caption"], .document-thumb, [data-icon="document"]');
-                return hasDocument !== null;
-              });
-
-              if (fileSent) {
-                console.log('✅ Файл отправлен через реалистичную эмуляцию мыши!');
-                return { success: true, method: 'realistic-mouse-emulation' };
-              } else {
-                console.log('  ⚠️  Файл не отправился, пробуем дополнительный Enter...');
-                // Пробуем нажать Enter для подстраховки
-                await this.page.keyboard.down('Enter');
-                await new Promise(resolve => setTimeout(resolve, 100));
-                await this.page.keyboard.up('Enter');
-                await new Promise(resolve => setTimeout(resolve, 3000));
-
-                const fileSentAfterEnter = await this.page.evaluate(() => {
-                  const messages = Array.from(document.querySelectorAll('[data-testid="msg-container"]'));
-                  if (messages.length === 0) return false;
-                  const lastMessage = messages[messages.length - 1];
-                  const hasDocument = lastMessage.querySelector('[data-testid="document-with-caption"], .document-thumb, [data-icon="document"]');
-                  return hasDocument !== null;
-                });
-
-                if (fileSentAfterEnter) {
-                  console.log('✅ Файл отправлен после дополнительного Enter!');
-                  return { success: true, method: 'realistic-mouse-plus-enter' };
-                }
-              }
-            } else {
-              console.log('  ⚠️  Кнопка отправки не найдена');
+            if (fileSent) {
+              console.log(`✅ Файл отправлен вручную пользователем! (через ${Math.round(elapsed / 1000)} секунд)`);
+              return { success: true, method: 'manual-user-send' };
             }
-          } catch (e) {
-            console.log(`  ⚠️  Ошибка эмуляции пользователя: ${e.message}`);
+
+            // Проверяем, закрылось ли окно предпросмотра (пользователь отменил или произошла ошибка)
+            const previewClosed = await this.page.evaluate(() => {
+              const preview = document.querySelector('[data-testid="media-viewer"], .document-viewer, [role="dialog"]');
+              const captionInput = document.querySelector('[contenteditable="true"][data-tab="10"]');
+              return preview === null && captionInput === null;
+            });
+
+            if (previewClosed) {
+              console.log('⚠️  Окно предпросмотра закрыто без отправки файла');
+              break;
+            }
+
+            // Показываем прогресс каждые 10 секунд
+            if (elapsed % 10000 === 0) {
+              const secondsLeft = Math.round((maxWaitTime - elapsed) / 1000);
+              console.log(`  ⏱️  Ожидание... (осталось ${secondsLeft} секунд)`);
+            }
+          }
+
+          if (elapsed >= maxWaitTime) {
+            console.log('⏱️  Время ожидания истекло (2 минуты)');
           }
 
           // Способ 1: Поиск кнопки отправки с иконкой "send" В ПРАВОЙ ЧАСТИ ЭКРАНА
