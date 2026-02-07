@@ -189,21 +189,29 @@ class WhatsAppManager {
         });
       } else {
         console.log('✅ WhatsApp Web уже открыт, открываю чат...');
-        await this.page.evaluate((phone) => {
-          window.location.href = `https://web.whatsapp.com/send?phone=${phone}`;
-        }, cleanPhone);
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Используем Promise.all чтобы дождаться завершения навигации
+        await Promise.all([
+          this.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {
+            console.log('  ⚠️  Навигация не завершилась корректно, продолжаем...');
+          }),
+          this.page.evaluate((phone) => {
+            window.location.href = `https://web.whatsapp.com/send?phone=${phone}`;
+          }, cleanPhone)
+        ]);
+
+        // Дополнительная задержка после навигации
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
       // Ждем появления чата
       console.log('⏳ Ожидание загрузки чата...');
 
       // Даем время на появление модальных окон (ошибок или загрузки чата)
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 1500));
 
       // Ждем стабилизации страницы после навигации (защита от "Execution context destroyed")
       console.log('⏳ Ожидание стабилизации страницы...');
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       // Проверяем наличие ошибки подключения к WhatsApp
       let connectionError = false;
@@ -789,23 +797,25 @@ class WhatsAppManager {
       } else {
         console.log('✅ WhatsApp Web уже открыт, открываю чат...');
 
-        // Открываем чат через внутреннюю навигацию (без перезагрузки страницы)
-        await this.page.evaluate((phone) => {
-          window.location.href = `https://web.whatsapp.com/send?phone=${phone}`;
-        }, cleanPhone);
-
-        // Даем время на начало навигации
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Используем Promise.all чтобы дождаться завершения навигации
+        await Promise.all([
+          this.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {
+            console.log('  ⚠️  Навигация не завершилась корректно, продолжаем...');
+          }),
+          this.page.evaluate((phone) => {
+            window.location.href = `https://web.whatsapp.com/send?phone=${phone}`;
+          }, cleanPhone)
+        ]);
 
         // Ожидаем исчезновения спиннера загрузки (если он есть)
         console.log('⏳ Ожидание загрузки интерфейса...');
         try {
           await this.page.waitForSelector('div[data-testid="default-user"]', { timeout: 3000 });
           console.log('  Загрузка интерфейса...');
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          await new Promise(resolve => setTimeout(resolve, 2000));
         } catch (e) {
           // Спиннер может не появиться, продолжаем
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          await new Promise(resolve => setTimeout(resolve, 1500));
         }
       }
 
@@ -1093,12 +1103,58 @@ class WhatsAppManager {
         }
 
         if (documentInput) {
-          // Загружаем файл напрямую
-          await documentInput.uploadFile(filePath);
-          console.log('✅ Файл загружен через альтернативный метод');
+          // Загружаем файл через виртуальный буфер (более надежный способ)
+          console.log('📁 Чтение файла в память...');
+          const fileBuffer = fs.readFileSync(filePath);
+          const fileName = path.basename(filePath);
+
+          // Создаем виртуальный файл в браузере
+          const fileHandle = await this.page.evaluateHandle((buffer, name) => {
+            const arr = new Uint8Array(buffer);
+            const blob = new Blob([arr], { type: 'application/pdf' });
+            const file = new File([blob], name, { type: 'application/pdf' });
+            return file;
+          }, Array.from(fileBuffer), fileName);
+
+          // Загружаем виртуальный файл в input
+          await documentInput.evaluateHandle((input, file) => {
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(file);
+            input.files = dataTransfer.files;
+
+            // Триггерим событие change
+            const event = new Event('change', { bubbles: true });
+            input.dispatchEvent(event);
+          }, fileHandle);
+
+          console.log('✅ Файл загружен через альтернативный метод (виртуальный буфер)');
 
           // Ждем появления окна предпросмотра
           console.log('⏳ Ожидание окна предпросмотра файла...');
+          try {
+            // Ждем появления элементов предпросмотра документа
+            await this.page.waitForFunction(
+              () => {
+                // Ищем признаки окна предпросмотра:
+                // 1. Превью PDF документа
+                const pdfPreview = document.querySelector('[data-testid="media-viewer"], .document-viewer, [role="dialog"]');
+                // 2. Заголовок файла с расширением .pdf
+                const fileTitle = Array.from(document.querySelectorAll('*')).find(el =>
+                  el.textContent && el.textContent.includes('.pdf')
+                );
+                // 3. Поле ввода для подписи к файлу
+                const captionInput = document.querySelector('[contenteditable="true"][data-tab="10"]');
+
+                return pdfPreview !== null || fileTitle !== null || captionInput !== null;
+              },
+              { timeout: 10000 }
+            );
+            console.log('✅ Окно предпросмотра открылось');
+          } catch (e) {
+            console.log('⚠️  Окно предпросмотра не обнаружено, ждем дополнительно...');
+          }
+
+          // Дополнительная задержка для стабилизации
           await new Promise(resolve => setTimeout(resolve, 2000));
 
           // Ждем исчезновения индикатора загрузки (спиннера/прогресс-бара)
@@ -1143,12 +1199,15 @@ class WhatsAppManager {
           // ЭМУЛЯЦИЯ РЕАЛЬНОГО ПОЛЬЗОВАТЕЛЯ: медленное движение мыши + hover + клик
           console.log('🔄 Эмуляция действий реального пользователя...');
           try {
-            // Получаем координаты кнопки
+            // Получаем координаты кнопки ТОЛЬКО В ПРАВОЙ ЧАСТИ (окно предпросмотра)
             const buttonCoords = await this.page.evaluate(() => {
               const buttons = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"]'));
               const sendButton = buttons.find(btn => {
                 const hasIcon = btn.querySelector('[data-icon*="send"]');
-                return hasIcon !== null;
+                const rect = btn.getBoundingClientRect();
+                // Кнопка должна быть в правой части экрана (окно предпросмотра)
+                const inRightSide = rect.left > window.innerWidth * 0.4;
+                return hasIcon !== null && inRightSide;
               });
 
               if (sendButton) {
@@ -1167,72 +1226,93 @@ class WhatsAppManager {
             if (buttonCoords.found) {
               console.log(`  Кнопка найдена: ${Math.round(buttonCoords.width)}x${Math.round(buttonCoords.height)} на (${Math.round(buttonCoords.x)}, ${Math.round(buttonCoords.y)})`);
 
-              // Шаг 1: ОЧЕНЬ медленно двигаем мышь с небольшими отклонениями (как человек)
-              console.log('  Шаг 1: Естественное движение мыши...');
-              const currentPos = await this.page.evaluate(() => ({ x: 0, y: 0 }));
-              const startX = currentPos.x || 100;
-              const startY = currentPos.y || 100;
+              // Используем JavaScript click вместо эмуляции мыши (более надежно)
+              console.log('  Пробуем JavaScript click...');
+              const clickWorked = await this.page.evaluate(() => {
+                const buttons = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"]'));
+                const sendButton = buttons.find(btn => {
+                  const hasIcon = btn.querySelector('[data-icon*="send"]');
+                  const rect = btn.getBoundingClientRect();
+                  const inRightSide = rect.left > window.innerWidth * 0.4;
+                  return hasIcon !== null && inRightSide;
+                });
 
-              // Двигаемся со случайными отклонениями
-              const steps = 20; // Больше шагов = более плавное движение
-              for (let i = 0; i <= steps; i++) {
-                const progress = i / steps;
-                // Добавляем небольшие случайные отклонения
-                const randomX = (Math.random() - 0.5) * 3;
-                const randomY = (Math.random() - 0.5) * 3;
-                const x = startX + (buttonCoords.x - startX) * progress + randomX;
-                const y = startY + (buttonCoords.y - startY) * progress + randomY;
-                await this.page.mouse.move(x, y);
-                await new Promise(resolve => setTimeout(resolve, 30 + Math.random() * 20)); // 30-50ms между шагами
-              }
-
-              // Шаг 2: Наводим точно на центр кнопки
-              await this.page.mouse.move(buttonCoords.x, buttonCoords.y);
-
-              // Шаг 3: Ждем как реальный пользователь перед кликом
-              console.log('  Шаг 2: Пауза перед кликом...');
-              await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 300)); // 500-800ms
-
-              // Шаг 4: Кликаем с ДЛИННЫМ удержанием
-              console.log('  Шаг 3: Медленный клик...');
-              await this.page.mouse.down();
-              await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 100)); // 150-250ms удержание
-              await this.page.mouse.up();
-
-              console.log('  Эмуляция клика выполнена, ждем отправки...');
-              await new Promise(resolve => setTimeout(resolve, 3000)); // Даем время на отправку
-
-              // Проверяем результат
-              const humanClickWorked = await this.page.evaluate(() => {
-                const messages = Array.from(document.querySelectorAll('[data-testid="msg-container"]'));
-                if (messages.length === 0) return false;
-                const lastMessage = messages[messages.length - 1];
-                const hasDocument = lastMessage.querySelector('[data-testid="document-with-caption"], .document-thumb, [data-icon="document"]');
-                return hasDocument !== null;
+                if (sendButton) {
+                  sendButton.click();
+                  return true;
+                }
+                return false;
               });
 
-              if (humanClickWorked) {
-                console.log('✅ Файл отправлен через эмуляцию пользователя!');
-                return { success: true, method: 'human-like-click' };
+              if (clickWorked) {
+                console.log('✅ Кнопка кликнута через JavaScript');
+                // Ждем отправки
+                await new Promise(resolve => setTimeout(resolve, 5000));
+
+                // Проверяем результат
+                const fileSent = await this.page.evaluate(() => {
+                  const messages = Array.from(document.querySelectorAll('[data-testid="msg-container"]'));
+                  if (messages.length === 0) return false;
+                  const lastMessage = messages[messages.length - 1];
+                  const hasDocument = lastMessage.querySelector('[data-testid="document-with-caption"], .document-thumb, [data-icon="document"]');
+                  return hasDocument !== null;
+                });
+
+                if (fileSent) {
+                  console.log('✅ Файл отправлен через JavaScript click!');
+                  return { success: true, method: 'javascript-click' };
+                } else {
+                  // Пробуем нажать Enter на всякий случай
+                  console.log('  Пробуем нажать Enter после клика...');
+                  await this.page.keyboard.press('Enter');
+                  await new Promise(resolve => setTimeout(resolve, 5000));
+
+                  const fileSentAfterEnter = await this.page.evaluate(() => {
+                    const messages = Array.from(document.querySelectorAll('[data-testid="msg-container"]'));
+                    if (messages.length === 0) return false;
+                    const lastMessage = messages[messages.length - 1];
+                    const hasDocument = lastMessage.querySelector('[data-testid="document-with-caption"], .document-thumb, [data-icon="document"]');
+                    return hasDocument !== null;
+                  });
+
+                  if (fileSentAfterEnter) {
+                    console.log('✅ Файл отправлен через JavaScript click + Enter!');
+                    return { success: true, method: 'javascript-click-enter' };
+                  }
+                }
               }
-              console.log('  Эмуляция не сработала, пробуем другие методы...');
+              console.log('  JavaScript click не сработал, пробуем другие методы...');
             }
           } catch (e) {
             console.log(`  Ошибка эмуляции: ${e.message}`);
           }
 
-          // Способ 1: Поиск кнопки отправки с иконкой "send"
-          console.log('🔄 Метод 1: Поиск кнопки отправки с иконкой send...');
+          // Способ 1: Поиск кнопки отправки с иконкой "send" В ПРАВОЙ ЧАСТИ ЭКРАНА
+          console.log('🔄 Метод 1: Поиск кнопки отправки в окне предпросмотра...');
           const sendResult = await this.page.evaluate(() => {
             const buttons = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"]'));
 
-            // Приоритет 1: Кнопка с иконкой send (wds-ic-send-filled или send)
-            const sendButtons = buttons.filter(btn => {
+            // ВАЖНО: Ищем кнопки только в правой части экрана (где окно предпросмотра)
+            const rightSideButtons = buttons.filter(btn => {
+              const rect = btn.getBoundingClientRect();
+              // Окно предпросмотра занимает правую часть экрана (примерно от 40% ширины)
+              const inRightSide = rect.left > window.innerWidth * 0.4;
+              // Кнопка должна быть видимой
+              const isVisible = rect.width > 0 && rect.height > 0;
+              return inRightSide && isVisible;
+            });
+
+            console.log(`[WhatsApp] Кнопок в правой части экрана: ${rightSideButtons.length}`);
+
+            // Приоритет 1: ТОЛЬКО кнопка с иконкой send в правой части
+            const sendButtons = rightSideButtons.filter(btn => {
               const hasIcon = btn.querySelector('[data-icon*="send"]');
+              // ВАЖНО: только кнопки С ИКОНКОЙ send, не просто круглые!
               return hasIcon !== null;
             });
 
             if (sendButtons.length > 0) {
+              console.log(`[WhatsApp] Найдено кнопок отправки: ${sendButtons.length}`);
               // Собираем информацию о всех найденных кнопках
               const buttonsInfo = sendButtons.map((btn, i) => {
                 const rect = btn.getBoundingClientRect();
@@ -1260,7 +1340,7 @@ class WhatsAppManager {
               const rect = firstButton.getBoundingClientRect();
               return {
                 success: true,
-                method: 'send-icon-button-found',
+                method: 'send-icon-button-found-right-side',
                 buttonsFound: sendButtons.length,
                 buttonsInfo: buttonsInfo,
                 clickTarget: {
@@ -1270,35 +1350,76 @@ class WhatsAppManager {
               };
             }
 
-            // Приоритет 2: Ищем span с data-icon="send" (иконка отправки)
-            const sendIcon = document.querySelector('span[data-icon="send"]');
-            if (sendIcon) {
-              const btn = sendIcon.closest('button, div[role="button"], span[role="button"]');
-              if (btn) {
-                console.log('✓ Найдена кнопка с иконкой send');
-                btn.click();
-                return { success: true, method: 'send-icon' };
+            // Приоритет 2: Любая круглая кнопка в правом нижнем углу (где обычно кнопка отправки)
+            // НО НЕ кнопка прикрепления!
+            const roundButtonsBottomRight = rightSideButtons.filter(btn => {
+              const rect = btn.getBoundingClientRect();
+              const style = window.getComputedStyle(btn);
+              const borderRadius = parseFloat(style.borderRadius);
+              const isRound = borderRadius > 25 || style.borderRadius.includes('%');
+              // В нижней половине экрана
+              const inBottomHalf = rect.top > window.innerHeight * 0.5;
+              // Размер примерно 50-70px (типичный размер кнопки отправки)
+              const rightSize = rect.width >= 40 && rect.width <= 80 && rect.height >= 40 && rect.height <= 80;
+              // НЕ кнопка прикрепления, смайликов, голосового сообщения и т.д.
+              const aria = btn.getAttribute('aria-label')?.toLowerCase() || '';
+              const isNotWrongButton = !aria.includes('прикреп') && !aria.includes('attach') && !aria.includes('clip') &&
+                                      !aria.includes('смайлик') && !aria.includes('emoji') && !aria.includes('expression') &&
+                                      !aria.includes('голосов') && !aria.includes('voice') && !aria.includes('mic');
+              // НЕ кнопка с иконками plus, expressions, mic
+              const hasWrongIcon = btn.querySelector('[data-icon*="plus"], [data-icon*="expression"], [data-icon*="mic"]');
+              const hasCorrectIcon = hasWrongIcon === null;
+
+              return isRound && inBottomHalf && rightSize && isNotWrongButton && hasCorrectIcon;
+            });
+
+            if (roundButtonsBottomRight.length > 0) {
+              console.log(`[WhatsApp] Найдено круглых кнопок в правом нижнем углу: ${roundButtonsBottomRight.length}`);
+              const firstButton = roundButtonsBottomRight[0];
+              const rect = firstButton.getBoundingClientRect();
+              return {
+                success: true,
+                method: 'round-button-bottom-right',
+                buttonsFound: roundButtonsBottomRight.length,
+                clickTarget: {
+                  x: Math.round(rect.left + rect.width / 2),
+                  y: Math.round(rect.top + rect.height / 2)
+                }
+              };
+            }
+
+            // Приоритет 3: Ищем span с data-icon="send" В ПРАВОЙ ЧАСТИ
+            const sendIcons = Array.from(document.querySelectorAll('span[data-icon="send"]'));
+            for (const sendIcon of sendIcons) {
+              const rect = sendIcon.getBoundingClientRect();
+              if (rect.left > window.innerWidth * 0.4) {
+                const btn = sendIcon.closest('button, div[role="button"], span[role="button"]');
+                if (btn) {
+                  console.log('✓ Найдена кнопка с иконкой send в правой части');
+                  const btnRect = btn.getBoundingClientRect();
+                  return {
+                    success: true,
+                    method: 'send-icon-right',
+                    clickTarget: {
+                      x: Math.round(btnRect.left + btnRect.width / 2),
+                      y: Math.round(btnRect.top + btnRect.height / 2)
+                    }
+                  };
+                }
               }
             }
 
-            // Приоритет 3: Поиск зеленых кнопок и выбор самой большой справа
-            const greenButtons = buttons.filter(btn => {
-              const rect = btn.getBoundingClientRect();
+            // Приоритет 4: Поиск зеленых кнопок и выбор самой большой справа
+            const greenButtons = rightSideButtons.filter(btn => {
               const style = window.getComputedStyle(btn);
               const bgColor = style.backgroundColor;
-              // Зеленая кнопка WhatsApp и находится в правой части экрана
-              return (bgColor.includes('0, 168') || bgColor.includes('0,168') ||
-                      bgColor.includes('rgb(0, 150') || bgColor.includes('00a884') ||
-                      bgColor.includes('37, 211') || bgColor.includes('25, 206')) &&
-                     rect.right > window.innerWidth * 0.5; // Справа от середины экрана
+              // Зеленая кнопка WhatsApp
+              return bgColor.includes('0, 168') || bgColor.includes('0,168') ||
+                     bgColor.includes('rgb(0, 150') || bgColor.includes('00a884') ||
+                     bgColor.includes('37, 211') || bgColor.includes('25, 206');
             });
 
-            console.log(`🔍 Найдено зеленых кнопок справа: ${greenButtons.length}`);
-            greenButtons.forEach((btn, i) => {
-              const rect = btn.getBoundingClientRect();
-              const style = window.getComputedStyle(btn);
-              console.log(`  Кнопка ${i}: color=${style.backgroundColor}, size=${Math.round(rect.width)}x${Math.round(rect.height)}, pos=(${Math.round(rect.left)}, ${Math.round(rect.top)})`);
-            });
+            console.log(`[WhatsApp] Найдено зеленых кнопок в правой части: ${greenButtons.length}`);
 
             if (greenButtons.length > 0) {
               // Выбираем самую большую зеленую кнопку
@@ -1307,23 +1428,34 @@ class WhatsAppManager {
                 const largestRect = largest.getBoundingClientRect();
                 return (rect.width * rect.height) > (largestRect.width * largestRect.height) ? btn : largest;
               });
-              console.log('✓ Найдена зеленая кнопка справа');
-              largestBtn.click();
-              return { success: true, method: 'green-right-button' };
+              console.log('[WhatsApp] Найдена зеленая кнопка в правой части');
+              const rect = largestBtn.getBoundingClientRect();
+              return {
+                success: true,
+                method: 'green-right-button',
+                clickTarget: {
+                  x: Math.round(rect.left + rect.width / 2),
+                  y: Math.round(rect.top + rect.height / 2)
+                }
+              };
             }
 
-            // Приоритет 4: Поиск по aria-label "Send" / "Отправить" В НИЖНЕЙ ЧАСТИ ЭКРАНА
-            let sendBtn = buttons.find(btn => {
+            // Приоритет 5: Поиск по aria-label "Send" / "Отправить" В ПРАВОЙ ЧАСТИ
+            let sendBtn = rightSideButtons.find(btn => {
               const ariaLabel = btn.getAttribute('aria-label')?.toLowerCase() || '';
-              const rect = btn.getBoundingClientRect();
-              // Должна быть в нижней половине экрана (модальное окно предпросмотра)
-              const inBottomHalf = rect.bottom > window.innerHeight * 0.5;
-              return (ariaLabel.includes('send') || ariaLabel.includes('отправить') || ariaLabel.includes('enviar')) && inBottomHalf;
+              return ariaLabel.includes('send') || ariaLabel.includes('отправить') || ariaLabel.includes('enviar');
             });
             if (sendBtn) {
-              console.log('✓ Найдена кнопка по aria-label в нижней части экрана');
-              sendBtn.click();
-              return { success: true, method: 'aria-label-bottom' };
+              console.log('[WhatsApp] Найдена кнопка по aria-label в правой части');
+              const rect = sendBtn.getBoundingClientRect();
+              return {
+                success: true,
+                method: 'aria-label-right',
+                clickTarget: {
+                  x: Math.round(rect.left + rect.width / 2),
+                  y: Math.round(rect.top + rect.height / 2)
+                }
+              };
             }
 
             // Способ 3: Поиск по data-testid
