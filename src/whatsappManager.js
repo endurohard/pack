@@ -1197,59 +1197,41 @@ class WhatsAppManager {
           console.log('🔍 Поиск кнопки отправки в окне предпросмотра файла...');
 
           // ЭМУЛЯЦИЯ РЕАЛЬНОГО ПОЛЬЗОВАТЕЛЯ: медленное движение мыши + hover + клик
-          console.log('🔄 Эмуляция действий реального пользователя...');
+          // НОВЫЙ ПОДХОД: Используем клавиатурную навигацию вместо кликов
+          // Это обходит защиту от автоматизации WhatsApp
+          console.log('⌨️  Используем клавиатурную навигацию (обход защиты от автоматизации)...');
           try {
-            // Получаем координаты кнопки ТОЛЬКО В ПРАВОЙ ЧАСТИ (окно предпросмотра)
-            const buttonCoords = await this.page.evaluate(() => {
-              const buttons = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"]'));
-              const sendButton = buttons.find(btn => {
-                const hasIcon = btn.querySelector('[data-icon*="send"]');
-                const rect = btn.getBoundingClientRect();
-                // Кнопка должна быть в правой части экрана (окно предпросмотра)
-                const inRightSide = rect.left > window.innerWidth * 0.4;
-                return hasIcon !== null && inRightSide;
-              });
-
-              if (sendButton) {
-                const rect = sendButton.getBoundingClientRect();
-                return {
-                  x: rect.left + rect.width / 2,
-                  y: rect.top + rect.height / 2,
-                  width: rect.width,
-                  height: rect.height,
-                  found: true
-                };
+            // Шаг 1: Кликаем на поле ввода подписи (caption), чтобы активировать окно
+            console.log('  1. Активируем поле ввода подписи...');
+            const captionFocused = await this.page.evaluate(() => {
+              // Ищем поле ввода подписи к файлу
+              const captionInput = document.querySelector('[contenteditable="true"][data-tab="10"]');
+              if (captionInput) {
+                captionInput.focus();
+                captionInput.click();
+                return true;
               }
-              return { found: false };
+              return false;
             });
 
-            if (buttonCoords.found) {
-              console.log(`  Кнопка найдена: ${Math.round(buttonCoords.width)}x${Math.round(buttonCoords.height)} на (${Math.round(buttonCoords.x)}, ${Math.round(buttonCoords.y)})`);
+            if (captionFocused) {
+              console.log('  ✅ Поле подписи активировано');
+              await new Promise(resolve => setTimeout(resolve, 500));
 
-              // Используем JavaScript click вместо эмуляции мыши (более надежно)
-              console.log('  Пробуем JavaScript click...');
-              const clickWorked = await this.page.evaluate(() => {
-                const buttons = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"]'));
-                const sendButton = buttons.find(btn => {
-                  const hasIcon = btn.querySelector('[data-icon*="send"]');
-                  const rect = btn.getBoundingClientRect();
-                  const inRightSide = rect.left > window.innerWidth * 0.4;
-                  return hasIcon !== null && inRightSide;
-                });
+              // Шаг 2: Пробуем Tab + Enter после каждого нажатия
+              // Это проще и надежнее чем искать правильную кнопку
+              console.log('  2. Пробуем Tab + Enter (перебор всех элементов)...');
 
-                if (sendButton) {
-                  sendButton.click();
-                  return true;
-                }
-                return false;
-              });
+              for (let tabs = 1; tabs <= 8; tabs++) {
+                await this.page.keyboard.press('Tab');
+                await new Promise(resolve => setTimeout(resolve, 400));
 
-              if (clickWorked) {
-                console.log('✅ Кнопка кликнута через JavaScript');
-                // Ждем отправки
-                await new Promise(resolve => setTimeout(resolve, 5000));
+                // После каждого Tab пробуем нажать Enter
+                console.log(`    Tab ${tabs}: пробуем Enter...`);
+                await this.page.keyboard.press('Enter');
+                await new Promise(resolve => setTimeout(resolve, 2000));
 
-                // Проверяем результат
+                // Проверяем, отправился ли файл
                 const fileSent = await this.page.evaluate(() => {
                   const messages = Array.from(document.querySelectorAll('[data-testid="msg-container"]'));
                   if (messages.length === 0) return false;
@@ -1259,32 +1241,45 @@ class WhatsAppManager {
                 });
 
                 if (fileSent) {
-                  console.log('✅ Файл отправлен через JavaScript click!');
-                  return { success: true, method: 'javascript-click' };
-                } else {
-                  // Пробуем нажать Enter на всякий случай
-                  console.log('  Пробуем нажать Enter после клика...');
-                  await this.page.keyboard.press('Enter');
-                  await new Promise(resolve => setTimeout(resolve, 5000));
+                  console.log(`  ✅ Файл отправлен после ${tabs} Tab + Enter!`);
+                  return { success: true, method: 'keyboard-tab-enter' };
+                }
 
-                  const fileSentAfterEnter = await this.page.evaluate(() => {
-                    const messages = Array.from(document.querySelectorAll('[data-testid="msg-container"]'));
-                    if (messages.length === 0) return false;
-                    const lastMessage = messages[messages.length - 1];
-                    const hasDocument = lastMessage.querySelector('[data-testid="document-with-caption"], .document-thumb, [data-icon="document"]');
-                    return hasDocument !== null;
-                  });
+                // Проверяем, закрылось ли окно предпросмотра (значит мы нажали не на ту кнопку)
+                const previewClosed = await this.page.evaluate(() => {
+                  const preview = document.querySelector('[data-testid="media-viewer"], .document-viewer, [role="dialog"]');
+                  const captionInput = document.querySelector('[contenteditable="true"][data-tab="10"]');
+                  return preview === null && captionInput === null;
+                });
 
-                  if (fileSentAfterEnter) {
-                    console.log('✅ Файл отправлен через JavaScript click + Enter!');
-                    return { success: true, method: 'javascript-click-enter' };
-                  }
+                if (previewClosed) {
+                  console.log(`    ⚠️  Окно предпросмотра закрылось после ${tabs} Tab, прекращаем попытки`);
+                  break;
                 }
               }
-              console.log('  JavaScript click не сработал, пробуем другие методы...');
+
+              console.log('  ⚠️  Tab + Enter не сработал, пробуем альтернативный метод...');
+            } else {
+              console.log('  ⚠️  Поле подписи не найдено, пробуем прямой Enter...');
+              // Если поле подписи не найдено, просто пробуем нажать Enter
+              await this.page.keyboard.press('Enter');
+              await new Promise(resolve => setTimeout(resolve, 3000));
+
+              const fileSent = await this.page.evaluate(() => {
+                const messages = Array.from(document.querySelectorAll('[data-testid="msg-container"]'));
+                if (messages.length === 0) return false;
+                const lastMessage = messages[messages.length - 1];
+                const hasDocument = lastMessage.querySelector('[data-testid="document-with-caption"], .document-thumb, [data-icon="document"]');
+                return hasDocument !== null;
+              });
+
+              if (fileSent) {
+                console.log('✅ Файл отправлен через прямой Enter!');
+                return { success: true, method: 'direct-enter' };
+              }
             }
           } catch (e) {
-            console.log(`  Ошибка эмуляции: ${e.message}`);
+            console.log(`  ⚠️  Ошибка клавиатурной навигации: ${e.message}`);
           }
 
           // Способ 1: Поиск кнопки отправки с иконкой "send" В ПРАВОЙ ЧАСТИ ЭКРАНА
