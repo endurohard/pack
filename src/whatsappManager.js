@@ -21,6 +21,202 @@ const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * ============================================================================
+ * WhatsApp File Upload Methods Documentation
+ * ============================================================================
+ *
+ * This module provides three methods for uploading files to WhatsApp Web,
+ * with automatic fallback between methods when WhatsApp blocks programmatic uploads.
+ *
+ * IMPORTANT: All file paths must be absolute. Use path.resolve() before upload.
+ *
+ * ============================================================================
+ * METHOD 1: ElementHandle.uploadFile() - Direct File Input Manipulation
+ * ============================================================================
+ *
+ * The primary upload method using Puppeteer's built-in uploadFile() API.
+ * Simple and reliable for images, but may be blocked by WhatsApp for documents.
+ *
+ * Pros:
+ * - Simple API, minimal setup
+ * - Already integrated in codebase
+ * - Works reliably for images
+ *
+ * Cons:
+ * - Does NOT validate file path existence (must validate manually)
+ * - Requires absolute paths (relative paths resolve unpredictably)
+ * - May be blocked by WhatsApp for certain file types
+ *
+ * @example
+ * // Direct uploadFile usage
+ * const fileInput = await page.$('input[type="file"]');
+ * const absolutePath = path.resolve('/path/to/invoice.pdf');
+ *
+ * // Always validate file exists before upload
+ * const validation = this.validateFilePath(absolutePath);
+ * if (!validation.valid) {
+ *   throw new Error(validation.error);
+ * }
+ *
+ * await fileInput.uploadFile(validation.absolutePath);
+ *
+ * // Wait for processing and verify acceptance
+ * await new Promise(resolve => setTimeout(resolve, 3000));
+ * const accepted = await this.verifyFileAccepted();
+ * if (!accepted.accepted) {
+ *   console.log('File was not accepted by WhatsApp');
+ * }
+ *
+ * ============================================================================
+ * METHOD 2: page.waitForFileChooser() - Event-Based Dialog Interception
+ * ============================================================================
+ *
+ * Alternative method that intercepts the native file chooser dialog.
+ * Used as a fallback when uploadFile() is blocked by WhatsApp.
+ *
+ * IMPORTANT: waitForFileChooser() must be called BEFORE the action that opens
+ * the file dialog. Use Promise.all to synchronize the click and interception.
+ *
+ * Pros:
+ * - Intercepts native file dialog, more realistic interaction
+ * - Works when uploadFile() is blocked by WhatsApp
+ * - Supports multiple files in a single operation
+ *
+ * Cons:
+ * - Must be set up before dialog opens (use Promise.all pattern)
+ * - Only one chooser can be active at a time
+ * - Suppresses native picker in headful mode (user won't see dialog)
+ *
+ * @example
+ * // waitForFileChooser with Promise.all pattern (RECOMMENDED)
+ * const attachButton = await page.$('[data-testid="clip"]');
+ * const absolutePath = path.resolve('/path/to/invoice.pdf');
+ *
+ * // Setup chooser BEFORE the click that opens dialog
+ * const [fileChooser] = await Promise.all([
+ *   page.waitForFileChooser({ timeout: 10000 }),
+ *   attachButton.click()  // This triggers the file dialog
+ * ]);
+ *
+ * // Accept the file through the intercepted dialog
+ * await fileChooser.accept([absolutePath]);
+ *
+ * // Verify acceptance
+ * const accepted = await this.verifyFileAccepted({ timeout: 5000 });
+ * console.log('File accepted:', accepted.accepted, 'Indicators:', accepted.indicators);
+ *
+ * ============================================================================
+ * METHOD 3: Browser DataTransfer API - Native DOM File Setting
+ * ============================================================================
+ *
+ * Low-level approach using the browser's DataTransfer API to programmatically
+ * set files on an input element. Bypasses Puppeteer limitations entirely.
+ *
+ * IMPORTANT: File content must be passed to the browser context as base64 or
+ * buffer, then reconstructed as a File object. Use for special cases only.
+ *
+ * Pros:
+ * - Bypasses Puppeteer upload limitations completely
+ * - Full control over file object properties
+ * - Can modify file metadata (name, type, size)
+ *
+ * Cons:
+ * - Most complex implementation (requires file content serialization)
+ * - May not work with all input elements (some check file sources)
+ * - Requires page.evaluate to run in browser context
+ *
+ * @example
+ * // DataTransfer API usage (within page.evaluate context)
+ * const result = await page.evaluate(async (fileDataBase64, fileName, mimeType) => {
+ *   const input = document.querySelector('input[type="file"]');
+ *   if (!input) return { success: false, error: 'Input not found' };
+ *
+ *   // Decode base64 to binary
+ *   const binaryString = atob(fileDataBase64);
+ *   const bytes = new Uint8Array(binaryString.length);
+ *   for (let i = 0; i < binaryString.length; i++) {
+ *     bytes[i] = binaryString.charCodeAt(i);
+ *   }
+ *
+ *   // Create File object from binary data
+ *   const file = new File([bytes], fileName, { type: mimeType });
+ *
+ *   // Create DataTransfer and add file
+ *   const dataTransfer = new DataTransfer();
+ *   dataTransfer.items.add(file);
+ *
+ *   // Set files on input and dispatch events
+ *   input.files = dataTransfer.files;
+ *   input.dispatchEvent(new Event('input', { bubbles: true }));
+ *   input.dispatchEvent(new Event('change', { bubbles: true }));
+ *
+ *   return { success: true, fileName };
+ * }, fileBase64Content, 'invoice.pdf', 'application/pdf');
+ *
+ * // After DataTransfer, use triggerFileInputEvents for additional DOM events
+ * const inputElement = await page.$('input[type="file"]');
+ * await triggerFileInputEvents(page, inputElement, { triggerFocus: true });
+ *
+ * ============================================================================
+ * RECOMMENDED USAGE: uploadFileWithFallback()
+ * ============================================================================
+ *
+ * For production use, the uploadFileWithFallback() method automatically tries
+ * all methods in sequence with proper error handling and verification.
+ *
+ * @example
+ * // Unified upload with automatic fallback (RECOMMENDED FOR PRODUCTION)
+ * const fileInput = await page.$('input[type="file"]');
+ * const attachButton = await page.$('[data-testid="clip"]');
+ *
+ * const result = await this.uploadFileWithFallback('/path/to/invoice.pdf', fileInput, {
+ *   fallbackButton: attachButton,  // Required for waitForFileChooser fallback
+ *   verifyTimeout: 5000,           // Timeout for verification (ms)
+ *   chooserTimeout: 10000          // Timeout for file chooser (ms)
+ * });
+ *
+ * if (result.success) {
+ *   console.log(`File uploaded via ${result.method}`);  // 'uploadFile' or 'fileChooser'
+ * } else {
+ *   console.error(`Upload failed: ${result.error}`);
+ * }
+ *
+ * ============================================================================
+ * USER ACTION SIMULATION (puppeteer_emulation.js)
+ * ============================================================================
+ *
+ * To bypass WhatsApp's anti-automation detection, combine upload methods with
+ * user action simulation from puppeteer_emulation.js:
+ *
+ * Available functions:
+ * - moveToFileInput(page, element)        - Natural cursor movement to element
+ * - simulateFileInputClick(page, element) - Click with natural mouse movement
+ * - hoverFileInput(page, element)         - Hover effect before upload
+ * - triggerFileInputEvents(page, element) - Dispatch DOM events (input, change)
+ *
+ * @example
+ * // Full upload flow with user simulation
+ * const { hoverFileInput, triggerFileInputEvents } = require('./puppeteer_emulation.js');
+ *
+ * // 1. Simulate hover before upload
+ * await hoverFileInput(page, fileInput, 500);
+ *
+ * // 2. Upload file
+ * const result = await this.uploadFileWithFallback(filePath, fileInput, {
+ *   fallbackButton: attachButton
+ * });
+ *
+ * // 3. Trigger events for complete DOM simulation
+ * await triggerFileInputEvents(page, fileInput, { triggerFocus: true });
+ *
+ * // 4. Verify with comprehensive check
+ * const verified = await this.verifyFileAccepted({ timeout: 5000 });
+ * console.log('Indicators found:', verified.indicators);
+ *
+ * ============================================================================
+ */
+
 class WhatsAppManager {
   constructor() {
     this.browser = null;
