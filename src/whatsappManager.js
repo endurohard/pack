@@ -1008,7 +1008,10 @@ class WhatsAppManager {
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-features=IsolateOrigins,site-per-process',
+        '--window-size=1280,720'
       ];
 
       // Добавляем прокси только если переменная окружения установлена
@@ -1025,6 +1028,9 @@ class WhatsAppManager {
 
       this.page = await this.browser.newPage();
       await this.page.setViewport({ width: 1280, height: 720 });
+
+      // Устанавливаем User-Agent современного Chrome для совместимости с WhatsApp Web
+      await this.page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36');
 
       console.log('🌐 Открываю web.whatsapp.com...');
       await this.page.goto('https://web.whatsapp.com', {
