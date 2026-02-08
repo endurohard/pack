@@ -2180,59 +2180,78 @@ class WhatsAppManager {
           await this.page.screenshot({ path: '/tmp/whatsapp_after_upload.png' });
           console.log('📸 Скриншот после загрузки файла сохранен');
 
+          // Добавляем подпись к файлу если есть сообщение
+          if (message) {
+            console.log('📝 Добавляю подпись к файлу...');
+            try {
+              const captionSelectors = [
+                '[data-testid="media-caption-input"]',
+                'div[contenteditable="true"][data-tab="10"]',
+                'div[contenteditable="true"][data-lexical-editor="true"]',
+                'footer [contenteditable="true"]'
+              ];
+
+              let captionBox = null;
+              for (const selector of captionSelectors) {
+                captionBox = await this.page.$(selector);
+                if (captionBox) {
+                  console.log(`  Найдено поле подписи: ${selector}`);
+                  break;
+                }
+              }
+
+              if (captionBox) {
+                await captionBox.click();
+                await new Promise(resolve => setTimeout(resolve, 500));
+                await this.page.keyboard.type(message);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                console.log('✅ Подпись добавлена к файлу');
+
+                // Пробуем отправить через Ctrl+Enter (специальный способ для файлов)
+                console.log('⌨️  Нажимаю Ctrl+Enter для отправки файла...');
+                await this.page.keyboard.down('Control');
+                await this.page.keyboard.press('Enter');
+                await this.page.keyboard.up('Control');
+
+                // Ждем дольше для отправки файла
+                await new Promise(resolve => setTimeout(resolve, 5000));
+
+                // Проверяем несколько раз, отправился ли файл
+                let sentViaCtrlEnter = false;
+                for (let check = 0; check < 3; check++) {
+                  sentViaCtrlEnter = await this.page.evaluate(() => {
+                    const messages = Array.from(document.querySelectorAll('[data-testid="msg-container"]'));
+                    if (messages.length === 0) return false;
+                    const lastMessage = messages[messages.length - 1];
+                    const hasDocument = lastMessage.querySelector('[data-testid="document-with-caption"], .document-thumb, [data-icon="document"]');
+                    const isOutgoing = lastMessage.classList.toString().includes('message-out');
+                    return hasDocument !== null && isOutgoing;
+                  });
+
+                  if (sentViaCtrlEnter) {
+                    console.log(`✅ Файл отправлен через Ctrl+Enter! (проверка ${check + 1})`);
+                    return { success: true, method: 'ctrl-enter-after-caption' };
+                  }
+
+                  if (check < 2) {
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                  }
+                }
+
+                console.log('⚠️  Ctrl+Enter не сработал, пробую кликнуть по кнопке...');
+              } else {
+                console.warn('⚠️  Поле подписи не найдено');
+              }
+            } catch (err) {
+              console.warn('⚠️  Ошибка при добавлении подписи:', err.message);
+            }
+          }
+
           // Ищем и кликаем кнопку отправки в модальном окне предпросмотра
           console.log('🔍 Поиск кнопки отправки в окне предпросмотра файла...');
 
-          // ПОЛУАВТОМАТИЧЕСКИЙ РЕЖИМ: Открываем окно предпросмотра и ждем действий пользователя
-          console.log('👤 Полуавтоматический режим: файл готов к отправке');
-          console.log('⏳ Ожидание ручной отправки пользователем...');
-          console.log('💡 ИНСТРУКЦИЯ: Откройте браузер и нажмите кнопку отправки в WhatsApp Web');
-
-          // Ждем 2 минуты, чтобы пользователь мог вручную нажать кнопку отправки
-          const maxWaitTime = 120000; // 2 минуты
-          const checkInterval = 2000; // Проверяем каждые 2 секунды
-          let elapsed = 0;
-
-          while (elapsed < maxWaitTime) {
-            await new Promise(resolve => setTimeout(resolve, checkInterval));
-            elapsed += checkInterval;
-
-            // Проверяем, отправился ли файл
-            const fileSent = await this.page.evaluate(() => {
-              const messages = Array.from(document.querySelectorAll('[data-testid="msg-container"]'));
-              if (messages.length === 0) return false;
-              const lastMessage = messages[messages.length - 1];
-              const hasDocument = lastMessage.querySelector('[data-testid="document-with-caption"], .document-thumb, [data-icon="document"]');
-              return hasDocument !== null;
-            });
-
-            if (fileSent) {
-              console.log(`✅ Файл отправлен вручную пользователем! (через ${Math.round(elapsed / 1000)} секунд)`);
-              return { success: true, method: 'manual-user-send' };
-            }
-
-            // Проверяем, закрылось ли окно предпросмотра (пользователь отменил или произошла ошибка)
-            const previewClosed = await this.page.evaluate(() => {
-              const preview = document.querySelector('[data-testid="media-viewer"], .document-viewer, [role="dialog"]');
-              const captionInput = document.querySelector('[contenteditable="true"][data-tab="10"]');
-              return preview === null && captionInput === null;
-            });
-
-            if (previewClosed) {
-              console.log('⚠️  Окно предпросмотра закрыто без отправки файла');
-              break;
-            }
-
-            // Показываем прогресс каждые 10 секунд
-            if (elapsed % 10000 === 0) {
-              const secondsLeft = Math.round((maxWaitTime - elapsed) / 1000);
-              console.log(`  ⏱️  Ожидание... (осталось ${secondsLeft} секунд)`);
-            }
-          }
-
-          if (elapsed >= maxWaitTime) {
-            console.log('⏱️  Время ожидания истекло (2 минуты)');
-          }
+          // АВТОМАТИЧЕСКИЙ РЕЖИМ: Сразу ищем и нажимаем кнопку отправки
+          console.log('🤖 Автоматический режим: начинаю поиск кнопки отправки...');
 
           // Способ 1: Поиск кнопки отправки с иконкой "send" В ПРАВОЙ ЧАСТИ ЭКРАНА
           console.log('🔄 Метод 1: Поиск кнопки отправки в окне предпросмотра...');
