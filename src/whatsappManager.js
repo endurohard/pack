@@ -228,6 +228,101 @@ class WhatsAppManager {
   }
 
   /**
+   * Плавное движение мыши к элементу или координатам
+   * Эмулирует естественное поведение пользователя
+   *
+   * @param {Object} target - Целевая позиция {x, y} или ElementHandle
+   * @param {Object} options - Опции анимации
+   * @param {number} options.steps - Количество шагов анимации (по умолчанию 20)
+   * @param {number} options.delay - Задержка между шагами в мс (по умолчанию 10)
+   * @param {boolean} options.randomize - Добавлять случайные отклонения (по умолчанию true)
+   */
+  async smoothMouseMove(target, options = {}) {
+    const { steps = 20, delay = 10, randomize = true } = options;
+
+    // Получаем текущую позицию мыши
+    const currentPos = await this.page.evaluate(() => ({
+      x: window.lastMouseX || window.innerWidth / 2,
+      y: window.lastMouseY || window.innerHeight / 2
+    }));
+
+    // Определяем целевую позицию
+    let targetPos;
+    if (target.x !== undefined && target.y !== undefined) {
+      targetPos = target;
+    } else {
+      // Если передан ElementHandle, получаем его координаты
+      const box = await target.boundingBox();
+      if (!box) throw new Error('Element not visible');
+      targetPos = {
+        x: box.x + box.width / 2,
+        y: box.y + box.height / 2
+      };
+    }
+
+    // Плавное движение по кривой Безье
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      // Используем easing функцию для более естественного движения
+      const eased = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+
+      let x = currentPos.x + (targetPos.x - currentPos.x) * eased;
+      let y = currentPos.y + (targetPos.y - currentPos.y) * eased;
+
+      // Добавляем случайные отклонения для естественности
+      if (randomize && i > 0 && i < steps) {
+        x += (Math.random() - 0.5) * 3;
+        y += (Math.random() - 0.5) * 3;
+      }
+
+      await this.page.mouse.move(x, y);
+
+      // Сохраняем позицию для следующего вызова
+      await this.page.evaluate((mx, my) => {
+        window.lastMouseX = mx;
+        window.lastMouseY = my;
+      }, x, y);
+
+      if (i < steps) {
+        await new Promise(resolve => setTimeout(resolve, delay + Math.random() * 5));
+      }
+    }
+  }
+
+  /**
+   * Клик с эмуляцией естественного поведения
+   *
+   * @param {ElementHandle|Object} target - Элемент или координаты {x, y}
+   * @param {Object} options - Опции клика
+   * @param {boolean} options.smooth - Использовать плавное движение (по умолчанию true)
+   * @param {number} options.pauseBefore - Пауза перед кликом в мс (по умолчанию 100-300)
+   * @param {number} options.pauseAfter - Пауза после клика в мс (по умолчанию 200-500)
+   */
+  async humanClick(target, options = {}) {
+    const {
+      smooth = true,
+      pauseBefore = 100 + Math.random() * 200,
+      pauseAfter = 200 + Math.random() * 300
+    } = options;
+
+    if (smooth) {
+      await this.smoothMouseMove(target);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, pauseBefore));
+
+    if (target.click) {
+      // Если это ElementHandle
+      await target.click();
+    } else {
+      // Если это координаты
+      await this.page.mouse.click(target.x, target.y);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, pauseAfter));
+  }
+
+  /**
    * Валидация пути к файлу с нормализацией и проверкой существования
    *
    * Проверяет:
@@ -1957,7 +2052,12 @@ class WhatsAppManager {
       console.log(`✅ Файл для отправки: ${path.basename(absoluteFilePath)} (${fileValidation.size} байт)`);
 
       console.log('📎 Нажимаю кнопку прикрепления...');
-      await attachButton.click();
+      // Используем плавное движение мыши для имитации реального пользователя
+      await this.humanClick(attachButton, {
+        smooth: true,
+        pauseBefore: 200 + Math.random() * 300,
+        pauseAfter: 300 + Math.random() * 400
+      });
 
       // Ждем появления меню с опциями
       console.log('⏳ Ожидание меню прикрепления...');
@@ -2201,10 +2301,23 @@ class WhatsAppManager {
               }
 
               if (captionBox) {
-                await captionBox.click();
-                await new Promise(resolve => setTimeout(resolve, 500));
-                await this.page.keyboard.type(message);
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                // Плавное движение мыши к полю подписи
+                console.log('🎯 Плавное движение к полю подписи...');
+                await this.humanClick(captionBox, {
+                  smooth: true,
+                  pauseBefore: 100 + Math.random() * 150,
+                  pauseAfter: 200 + Math.random() * 200
+                });
+
+                // Имитируем естественную печать с небольшими задержками между символами
+                console.log('⌨️  Ввод подписи с имитацией печати...');
+                for (let i = 0; i < message.length; i++) {
+                  await this.page.keyboard.type(message[i]);
+                  // Случайная задержка между символами (20-80мс)
+                  await new Promise(resolve => setTimeout(resolve, 20 + Math.random() * 60));
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 200));
                 console.log('✅ Подпись добавлена к файлу');
 
                 // Пробуем отправить через Ctrl+Enter (специальный способ для файлов)
@@ -2493,8 +2606,16 @@ class WhatsAppManager {
             if (sendResult.clickTarget) {
               console.log(`🖱️  Подготовка к клику по координатам: (${sendResult.clickTarget.x}, ${sendResult.clickTarget.y})`);
 
-              // Добавляем задержку перед кликом
-              await new Promise(resolve => setTimeout(resolve, 1000));
+              // Используем плавное движение мыши к кнопке отправки
+              console.log('🎯 Плавное движение мыши к кнопке отправки...');
+              await this.smoothMouseMove(sendResult.clickTarget, {
+                steps: 25,
+                delay: 8,
+                randomize: true
+              });
+
+              // Добавляем естественную задержку перед кликом (как реальный пользователь)
+              await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 200));
 
               // Пробуем тройной клик с задержками
               console.log('  Попытка 1: одиночный клик');
