@@ -217,7 +217,7 @@ async function triggerFileInputEvents(page, element, options = {}) {
   }
 }
 
-module.exports = {
+export {
   moveToFileInput,
   simulateFileInputClick,
   hoverFileInput,

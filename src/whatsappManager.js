@@ -4,18 +4,16 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { createRequire } from 'module';
 import pkg from 'whatsapp-web.js';
 const { MessageMedia } = pkg;
 
 // Импорт функций эмуляции пользовательских действий
-const require = createRequire(import.meta.url);
-const {
+import {
   moveToFileInput,
   simulateFileInputClick,
   hoverFileInput,
   triggerFileInputEvents
-} = require('./puppeteer_emulation.js');
+} from './puppeteer_emulation.js';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -1000,20 +998,29 @@ class WhatsAppManager {
       // Проверяем и очищаем зависшие процессы Chrome перед запуском
       await this.cleanupOldBrowserProcesses();
 
+      // Определяем headless режим из переменной окружения (по умолчанию true для production)
+      const isHeadless = process.env.PUPPETEER_HEADLESS !== 'false';
+
+      const launchArgs = [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu'
+      ];
+
+      // Добавляем прокси только если переменная окружения установлена
+      if (process.env.PROXY_SERVER) {
+        launchArgs.push(`--proxy-server=${process.env.PROXY_SERVER}`);
+      }
+
       this.browser = await puppeteer.launch({
-        headless: false,
+        headless: isHeadless ? 'new' : false,
         userDataDir: this.sessionDir,
         protocolTimeout: 300000, // 5 минут вместо дефолтных 180 секунд
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-gpu',
-          '--proxy-server=socks5://127.0.0.1:1080'
-        ]
+        args: launchArgs
       });
 
       this.page = await this.browser.newPage();
