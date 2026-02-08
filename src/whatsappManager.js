@@ -323,6 +323,40 @@ class WhatsAppManager {
   }
 
   /**
+   * Эмулирует процесс выбора файла пользователем
+   * Добавляет задержки, имитирующие открытие проводника,
+   * навигацию по папкам и выбор файла
+   *
+   * @param {string} filePath - Путь к файлу
+   */
+  async simulateFileSelection(filePath) {
+    console.log('📂 Эмуляция процесса выбора файла пользователем...');
+
+    const fileName = path.basename(filePath);
+    const folderPath = path.dirname(filePath);
+
+    // Имитация открытия диалога выбора файла
+    console.log('  🗂️  Открытие диалога выбора файла...');
+    await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 400));
+
+    // Имитация навигации к папке
+    console.log(`  📁 Переход к папке: ${path.basename(folderPath)}`);
+    await new Promise(resolve => setTimeout(resolve, 400 + Math.random() * 600));
+
+    // Имитация поиска файла в списке
+    console.log(`  🔍 Поиск файла: ${fileName}`);
+    await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 400));
+
+    // Имитация выбора файла
+    console.log(`  ✅ Файл выбран: ${fileName}`);
+    await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 250));
+
+    // Имитация подтверждения выбора
+    console.log('  👆 Нажатие кнопки "Открыть"...');
+    await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 200));
+  }
+
+  /**
    * Валидация пути к файлу с нормализацией и проверкой существования
    *
    * Проверяет:
@@ -2190,6 +2224,28 @@ class WhatsAppManager {
         }
 
         if (documentInput) {
+          // Эмулируем взаимодействие с input элементом
+          console.log('🎯 Эмуляция взаимодействия с элементом выбора файла...');
+
+          // Проверяем видимость input элемента
+          const inputBox = await documentInput.boundingBox();
+          if (inputBox) {
+            // Если input видим, делаем плавное движение к нему
+            console.log('👆 Плавное движение к области выбора файла...');
+            await this.smoothMouseMove({
+              x: inputBox.x + inputBox.width / 2,
+              y: inputBox.y + inputBox.height / 2
+            }, {
+              steps: 15,
+              delay: 12,
+              randomize: true
+            });
+            await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 150));
+          }
+
+          // Эмулируем процесс выбора файла через диалог (задержки + логи)
+          await this.simulateFileSelection(filePath);
+
           // Загружаем файл через виртуальный буфер (более надежный способ)
           console.log('📁 Чтение файла в память...');
           const fileBuffer = fs.readFileSync(filePath);
@@ -2203,15 +2259,27 @@ class WhatsAppManager {
             return file;
           }, Array.from(fileBuffer), fileName);
 
+          // Эмулируем фокус на input перед загрузкой
+          await documentInput.evaluate(input => {
+            input.focus();
+            // Триггерим событие mouseenter для естественности
+            input.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+            input.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+          });
+
+          await new Promise(resolve => setTimeout(resolve, 50 + Math.random() * 100));
+
           // Загружаем виртуальный файл в input
           await documentInput.evaluateHandle((input, file) => {
             const dataTransfer = new DataTransfer();
             dataTransfer.items.add(file);
             input.files = dataTransfer.files;
 
-            // Триггерим событие change
-            const event = new Event('change', { bubbles: true });
-            input.dispatchEvent(event);
+            // Триггерим события в правильном порядке
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            // Эмулируем завершение взаимодействия
+            input.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
           }, fileHandle);
 
           console.log('✅ Файл загружен через альтернативный метод (виртуальный буфер)');
