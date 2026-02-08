@@ -1,5 +1,5 @@
-# Используем официальный образ Node.js 20 (Debian-based для поддержки Chromium)
-FROM node:20-bullseye
+# Используем официальный образ Node.js 20 на Debian Bookworm (более новая версия с актуальным Chromium)
+FROM node:20-bookworm
 
 # Устанавливаем зависимости для Puppeteer и Chrome
 RUN apt-get update && apt-get install -y \
