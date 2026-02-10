@@ -1,0 +1,20 @@
+/* Корректировка отступов для страниц с sidebar */
+body.with-sidebar {
+    padding-left: 0 !important;
+}
+
+body.with-sidebar .container {
+    max-width: 100%;
+    margin: 20px;
+    margin-left: 270px;
+}
+
+body.with-sidebar .header {
+    border-radius: 20px 20px 0 0;
+}
+
+@media (max-width: 768px) {
+    body.with-sidebar .container {
+        margin: 20px;
+    }
+}

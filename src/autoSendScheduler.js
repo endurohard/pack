@@ -1,5 +1,6 @@
 import InvoiceDatabase from './invoiceDatabase.js';
 import WhatsAppManager from './whatsappManager.js';
+import PhoneValidator from './phoneValidator.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -10,16 +11,22 @@ const __dirname = path.dirname(__filename);
 /**
  * Планировщик автоматической отправки счетов
  * Проверяет каждые 10 минут наличие счетов для отправки
- * Отправляет счета с интервалом 10 минут между разными компаниями
+ * Отправляет счета с интервалом 5 минут между разными компаниями
  */
 class AutoSendScheduler {
   constructor(whatsappManager) {
     this.db = new InvoiceDatabase();
     this.whatsappManager = whatsappManager;
+    this.phoneValidator = new PhoneValidator();
     this.isProcessing = false;
     this.checkInterval = 10 * 60 * 1000; // 10 минут в миллисекундах
-    this.sendDelay = 10 * 60 * 1000; // 10 минут задержка между отправками
+    this.sendDelay = 5 * 60 * 1000; // 5 минут задержка между отправками
     this.intervalId = null;
+
+    // Очередь отправки
+    this.sendQueue = [];
+    this.currentSending = null;
+    this.cancelledInvoices = new Set(); // ID счетов, отправка которых отменена
   }
 
   /**
@@ -28,7 +35,7 @@ class AutoSendScheduler {
   start() {
     console.log('[AutoSend] Планировщик автоматической рассылки запущен');
     console.log('[AutoSend] Интервал проверки: 10 минут');
-    console.log('[AutoSend] Задержка между отправками: 10 минут');
+    console.log('[AutoSend] Задержка между отправками: 5 минут');
 
     // Первая проверка через 1 минуту после запуска
     setTimeout(() => {
@@ -68,12 +75,12 @@ class AutoSendScheduler {
       return false;
     }
 
-    // Проверяем, что не прошло больше 10 минут с момента планируемой отправки
+    // Проверяем, что не прошло больше 24 часов с момента планируемой отправки
     const diffMs = now - sendDate;
     const diffMinutes = diffMs / (1000 * 60);
 
-    // Разрешаем отправку в течение 10 минут после указанного времени
-    return diffMinutes >= 0 && diffMinutes < 10;
+    // Разрешаем отправку в течение 24 часов (1440 минут) после указанного времени
+    return diffMinutes >= 0 && diffMinutes < 1440;
   }
 
   /**
@@ -179,11 +186,25 @@ class AutoSendScheduler {
 
       console.log(`[AutoSend] После фильтрации осталось счетов для отправки: ${filteredInvoices.length}`);
 
-      // Отправляем счета с задержкой между ними
-      for (let i = 0; i < filteredInvoices.length; i++) {
-        const invoice = filteredInvoices[i];
+      // Добавляем счета в очередь
+      this.sendQueue = filteredInvoices;
 
-        console.log(`[AutoSend] Отправка счета ${i + 1}/${filteredInvoices.length}: №${invoice.invoiceNumber} для клиента ${invoice.client}`);
+      // Получаем настройки для всего цикла отправки
+      const settings = this.getSettings();
+
+      // Отправляем счета с задержкой между ними
+      for (let i = 0; i < this.sendQueue.length; i++) {
+        const invoice = this.sendQueue[i];
+
+        // Проверяем, не была ли отменена отправка
+        if (this.cancelledInvoices.has(invoice.id)) {
+          console.log(`[AutoSend] ⚠️ Отправка счета №${invoice.invoiceNumber} отменена`);
+          this.cancelledInvoices.delete(invoice.id);
+          continue;
+        }
+
+        this.currentSending = invoice;
+        console.log(`[AutoSend] Отправка счета ${i + 1}/${this.sendQueue.length}: №${invoice.invoiceNumber} для клиента ${invoice.client}`);
 
         try {
           await this.sendInvoice(invoice);
@@ -202,18 +223,37 @@ class AutoSendScheduler {
           console.log(`[AutoSend] ✅ Счет №${invoice.invoiceNumber} успешно отправлен`);
           console.log(`[AutoSend] Следующая отправка: ${new Date(invoice.nextSendDate).toLocaleString('ru-RU')}`);
 
+          // Перезагружаем WhatsApp после успешной отправки (если включено в настройках)
+          if (settings.restartWhatsAppAfterSend !== false) { // По умолчанию true
+            console.log(`[AutoSend] 🔄 Перезагрузка WhatsApp после отправки...`);
+            try {
+              await this.whatsappManager.restart();
+              console.log(`[AutoSend] ✅ WhatsApp успешно перезагружен`);
+              // Ждем 10 секунд после перезагрузки для стабилизации
+              await this.sleep(10000);
+            } catch (restartError) {
+              console.error(`[AutoSend] ⚠️  Ошибка перезагрузки WhatsApp:`, restartError.message);
+              // Продолжаем работу даже если перезагрузка не удалась
+            }
+          } else {
+            console.log(`[AutoSend] ⏭️  Перезагрузка WhatsApp отключена в настройках`);
+          }
+
         } catch (error) {
           console.error(`[AutoSend] ❌ Ошибка при отправке счета №${invoice.invoiceNumber}:`, error.message);
         }
 
-        // Ждем 10 минут перед следующей отправкой (кроме последнего)
-        if (i < filteredInvoices.length - 1) {
-          console.log(`[AutoSend] Ожидание 10 минут перед следующей отправкой...`);
+        this.currentSending = null;
+
+        // Ждем 5 минут перед следующей отправкой (кроме последнего)
+        if (i < this.sendQueue.length - 1) {
+          console.log(`[AutoSend] Ожидание 5 минут перед следующей отправкой...`);
           await this.sleep(this.sendDelay);
         }
       }
 
       console.log('[AutoSend] Все счета обработаны');
+      this.sendQueue = [];
 
     } catch (error) {
       console.error('[AutoSend] Ошибка при обработке счетов:', error);
@@ -293,6 +333,29 @@ class AutoSendScheduler {
       throw new Error('У клиента не указан номер телефона');
     }
 
+    // Валидируем номер телефона клиента
+    const validation = this.phoneValidator.validateInvoicePhone(invoice.client, invoice.clientPhone);
+
+    if (!validation.valid) {
+      console.warn(`[AutoSend] ⚠️  Предупреждение для счета №${invoice.invoiceNumber}:`, validation.message);
+
+      // Если клиент найден, но номер не совпадает - пытаемся исправить
+      if (validation.clientFound && validation.expectedPhone) {
+        console.log(`[AutoSend] 🔧 Попытка исправить номер: ${invoice.clientPhone} → ${validation.expectedPhone}`);
+
+        // Обновляем номер в счете
+        this.db.updateInvoice(invoice.id, {
+          clientPhone: validation.expectedPhone
+        });
+
+        invoice.clientPhone = validation.expectedPhone;
+        console.log(`[AutoSend] ✅ Номер телефона исправлен`);
+      } else {
+        // Если клиент не найден или нет номера - выбрасываем ошибку
+        throw new Error(validation.message);
+      }
+    }
+
     // Нормализуем номер телефона
     let phone = invoice.clientPhone.replace(/\D/g, '');
     if (phone.startsWith('8')) {
@@ -300,6 +363,14 @@ class AutoSendScheduler {
     }
     if (!phone.startsWith('7')) {
       phone = '7' + phone;
+    }
+
+    // Проверяем тестовый режим
+    const settings = this.getSettings();
+    const originalPhone = phone;
+    if (settings.testMode && settings.testPhone) {
+      console.log(`[AutoSend] 🧪 ТЕСТОВЫЙ РЕЖИМ: Перенаправление с ${phone} на ${settings.testPhone}`);
+      phone = settings.testPhone;
     }
 
     // Проверяем, был ли счет уже отправлен ранее
@@ -318,12 +389,17 @@ class AutoSendScheduler {
       const messageTemplate = this.getReminderMessageTemplate();
 
       // Формируем сообщение-напоминание, подставляя значения
-      const message = messageTemplate
+      let message = messageTemplate
         .replace(/{номер}/g, invoice.invoiceNumber)
         .replace(/{клиент}/g, invoice.client)
         .replace(/{сумма}/g, invoice.amount?.toLocaleString('ru-RU'))
         .replace(/{дата}/g, createdDate.toLocaleDateString('ru-RU'))
         .replace(/{дни}/g, `${daysPassed} ${this.getDaysWord(daysPassed)}`);
+
+      // Добавляем информацию о тестовом режиме
+      if (settings.testMode && originalPhone !== phone) {
+        message = `🧪 ТЕСТОВОЕ НАПОМИНАНИЕ\nДля клиента: ${invoice.client} (${originalPhone})\n\n` + message;
+      }
 
       console.log(`[AutoSend] Отправка напоминания (только текст) на ${phone}...`);
 
@@ -342,7 +418,12 @@ class AutoSendScheduler {
 
       // Формируем сообщение из шаблона приветствия
       let messageTemplate = this.getGreetingMessageTemplate();
-      const message = messageTemplate.replace(/{номер}/g, invoice.invoiceNumber);
+      let message = messageTemplate.replace(/{номер}/g, invoice.invoiceNumber);
+
+      // Добавляем информацию о тестовом режиме
+      if (settings.testMode && originalPhone !== phone) {
+        message = `🧪 ТЕСТОВАЯ ОТПРАВКА\nДля клиента: ${invoice.client} (${originalPhone})\n\n` + message;
+      }
 
       // Ищем PDF файл счета
       const invoicesDir = path.join(__dirname, '../output');
@@ -391,6 +472,62 @@ class AutoSendScheduler {
   }
 
   /**
+   * Получить очередь отправки
+   */
+  getQueue() {
+    return {
+      queue: this.sendQueue.map(invoice => ({
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        client: invoice.client,
+        clientPhone: invoice.clientPhone,
+        amount: invoice.amount,
+        nextSendDate: invoice.nextSendDate,
+        type: invoice.lastWhatsAppSent ? 'reminder' : 'invoice'
+      })),
+      currentSending: this.currentSending ? {
+        id: this.currentSending.id,
+        invoiceNumber: this.currentSending.invoiceNumber,
+        client: this.currentSending.client,
+        type: this.currentSending.lastWhatsAppSent ? 'reminder' : 'invoice'
+      } : null,
+      isProcessing: this.isProcessing
+    };
+  }
+
+  /**
+   * Отменить отправку счета
+   */
+  cancelInvoiceSending(invoiceId) {
+    // Добавляем в список отмененных
+    this.cancelledInvoices.add(invoiceId);
+
+    // Удаляем из очереди, если там есть
+    const index = this.sendQueue.findIndex(inv => inv.id === invoiceId);
+    if (index !== -1) {
+      this.sendQueue.splice(index, 1);
+      console.log(`[AutoSend] Счет №${invoiceId} удален из очереди отправки`);
+      return { success: true, message: 'Счет удален из очереди' };
+    }
+
+    // Проверяем, не отправляется ли сейчас
+    if (this.currentSending && this.currentSending.id === invoiceId) {
+      console.log(`[AutoSend] Отмена текущей отправки счета №${invoiceId}`);
+      return { success: true, message: 'Текущая отправка будет отменена' };
+    }
+
+    return { success: false, message: 'Счет не найден в очереди' };
+  }
+
+  /**
+   * Очистить отмену отправки (разрешить повторную отправку)
+   */
+  clearCancellation(invoiceId) {
+    this.cancelledInvoices.delete(invoiceId);
+    console.log(`[AutoSend] Отмена для счета №${invoiceId} снята`);
+  }
+
+  /**
    * Получить статус планировщика
    */
   getStatus() {
@@ -399,7 +536,9 @@ class AutoSendScheduler {
       isProcessing: this.isProcessing,
       checkInterval: this.checkInterval,
       sendDelay: this.sendDelay,
-      upcomingInvoices: this.db.getInvoicesForAutoSend().length
+      upcomingInvoices: this.db.getInvoicesForAutoSend().length,
+      queueLength: this.sendQueue.length,
+      currentSending: this.currentSending ? this.currentSending.invoiceNumber : null
     };
   }
 }

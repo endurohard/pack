@@ -1,0 +1,38 @@
+<nav class="sidebar">
+    <div class="sidebar-header">
+        <h2>📦 Pack System</h2>
+        <p>Система управления</p>
+    </div>
+    <ul class="sidebar-menu">
+        <li><a href="/index.html" data-page="index"><i>🏠</i> Главная</a></li>
+        <li><a href="/invoices.html" data-page="invoices"><i>📄</i> Счета</a></li>
+        <li><a href="/warehouse.html" data-page="warehouse"><i>📦</i> Склад</a></li>
+        <li><a href="/clients.html" data-page="clients"><i>👥</i> Клиенты</a></li>
+        <li><a href="/analytics.html" data-page="analytics"><i>📊</i> Аналитика</a></li>
+        <li><a href="/whatsapp-viewer.html" data-page="whatsapp"><i>💬</i> WhatsApp</a></li>
+        <li><a href="/settings.html" data-page="settings"><i>⚙️</i> Настройки</a></li>
+    </ul>
+</nav>
+<button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
+
+<script>
+// Подсветка активной страницы
+document.addEventListener('DOMContentLoaded', () => {
+    const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+    const links = document.querySelectorAll('.sidebar-menu a');
+    
+    links.forEach(link => {
+        if (link.getAttribute('href') === `/${currentPage}`) {
+            link.classList.add('active');
+        }
+    });
+    
+    // Добавляем класс body
+    document.body.classList.add('with-sidebar');
+});
+
+// Переключение sidebar на мобильных
+function toggleSidebar() {
+    document.querySelector('.sidebar').classList.toggle('active');
+}
+</script>

@@ -1,5 +1,5 @@
-# Используем официальный образ Node.js 20 (Debian-based для поддержки Chromium)
-FROM node:20-bullseye
+# Используем официальный образ Node.js 20 на Debian Bookworm (более новая версия с актуальным Chromium)
+FROM node:20-bookworm
 
 # Устанавливаем зависимости для Puppeteer и Chrome
 RUN apt-get update && apt-get install -y \
@@ -40,7 +40,13 @@ RUN apt-get update && apt-get install -y \
     libxtst6 \
     lsb-release \
     xdg-utils \
+    chromium \
+    chromium-sandbox \
     && rm -rf /var/lib/apt/lists/*
+
+# Устанавливаем переменную окружения для использования системного Chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Устанавливаем рабочую директорию
 WORKDIR /app
