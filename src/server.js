@@ -12,16 +12,29 @@ import invoiceCounter from './invoiceCounter.js';
 import AutoSendScheduler from './autoSendScheduler.js';
 import PaymentReminderService from './paymentReminderService.js';
 import InvoiceTelegramBot from './telegramBot.js';
-import { authMiddleware, loginHandler, verifyHandler, logoutHandler } from './authMiddleware.js';
+import { authMiddleware, loginHandler, verifyHandler, logoutHandler, rateLimitMiddleware } from './authMiddleware.js';
 import authDatabase from './authDatabase.js';
+import { validate, validateInvoice, validateClient, validateProduct } from './validators.js';
 import fs from 'fs';
 import multer from 'multer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Загружаем переменные окружения
-dotenv.config();
+// Загружаем переменные окружения в зависимости от NODE_ENV
+const nodeEnv = process.env.NODE_ENV || 'development';
+const envFile = nodeEnv === 'production' ? '.env.production' : '.env.development';
+const envPath = path.join(__dirname, '..', envFile);
+
+if (fs.existsSync(envPath)) {
+  dotenv.config({ path: envPath });
+  console.log(`📋 Загружена конфигурация: ${envFile}`);
+  console.log(`🌍 Окружение: ${nodeEnv}`);
+  console.log(`🧪 Тестовый режим WhatsApp: ${process.env.WHATSAPP_TEST_MODE === 'true' ? 'ВКЛ' : 'ВЫКЛ'}`);
+} else {
+  console.warn(`⚠️  Файл ${envFile} не найден, используются переменные окружения системы`);
+  dotenv.config(); // Fallback на .env
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -113,8 +126,8 @@ const uploadScreenshot = multer({
 // Добавляем middleware авторизации ДО всех остальных маршрутов
 app.use(authMiddleware);
 
-// API endpoints для авторизации (не требуют защиты, так как пропускаются в middleware)
-app.post('/api/auth/login', loginHandler);
+// API endpoints для авторизации с защитой от брутфорса
+app.post('/api/auth/login', rateLimitMiddleware, loginHandler);
 app.get('/api/auth/verify', verifyHandler);
 app.post('/api/auth/logout', logoutHandler);
 
@@ -182,7 +195,7 @@ function sanitizeFilename(name) {
 // API endpoint для создания счета
 app.post('/api/invoice', async (req, res) => {
   try {
-    const { invoiceNumber, clientName, clientPhone, isRecurring, items, discount, payment, uploadToYandex, getPublicLink } = req.body;
+    const { invoiceNumber, invoiceDate, clientName, clientPhone, isRecurring, items, discount, payment, uploadToYandex, getPublicLink } = req.body;
 
     // Валидация данных
     if (!invoiceNumber || !clientName || !items || !items.length || !payment) {
@@ -192,6 +205,7 @@ app.post('/api/invoice', async (req, res) => {
     // Подготавливаем данные счета
     const invoiceData = {
       invoiceNumber,
+      invoiceDate: invoiceDate || new Date().toISOString(),
       clientName,
       isRecurring: isRecurring || false,
       items: items.map(item => ({
@@ -263,6 +277,7 @@ app.post('/api/invoice', async (req, res) => {
     // Сохраняем в базу данных
     const savedInvoice = db.addInvoice({
       invoiceNumber,
+      invoiceDate: invoiceData.invoiceDate,
       filename,
       amount: totalAmount,
       items: invoiceData.items,
@@ -517,7 +532,7 @@ app.get('/api/invoices/paid/list', (req, res) => {
 app.put('/api/invoices/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { invoiceNumber, clientName, clientPhone, isRecurring, items, discount, payment } = req.body;
+    const { invoiceNumber, invoiceDate, clientName, clientPhone, isRecurring, items, discount, payment } = req.body;
 
     // Получаем существующий счет
     const existingInvoice = db.getInvoiceById(id);
@@ -528,6 +543,7 @@ app.put('/api/invoices/:id', async (req, res) => {
     // Подготавливаем данные счета
     const invoiceData = {
       invoiceNumber,
+      invoiceDate: invoiceDate || existingInvoice.invoiceDate || new Date().toISOString(),
       clientName,
       isRecurring: isRecurring || false,
       items: items.map(item => ({
@@ -573,6 +589,7 @@ app.put('/api/invoices/:id', async (req, res) => {
     // Обновляем данные в базе
     const updatedInvoice = db.updateInvoice(id, {
       invoiceNumber,
+      invoiceDate: invoiceData.invoiceDate,
       filename,
       amount: totalAmount,
       items: invoiceData.items,
@@ -1091,7 +1108,7 @@ app.delete('/api/warehouse/products/delete-image', (req, res) => {
 });
 
 // Добавить товар
-app.post('/api/warehouse/products', (req, res) => {
+app.post('/api/warehouse/products', validate(validateProduct), (req, res) => {
   try {
     const product = warehouseDb.addProduct(req.body);
     res.json({ success: true, product });
@@ -1101,7 +1118,7 @@ app.post('/api/warehouse/products', (req, res) => {
 });
 
 // Обновить товар
-app.put('/api/warehouse/products/:id', (req, res) => {
+app.put('/api/warehouse/products/:id', validate(validateProduct), (req, res) => {
   try {
     const product = warehouseDb.updateProduct(req.params.id, req.body);
     if (product) {
@@ -1270,7 +1287,7 @@ app.get('/api/clients/:id', (req, res) => {
 });
 
 // Добавить клиента
-app.post('/api/clients', (req, res) => {
+app.post('/api/clients', validate(validateClient), (req, res) => {
   try {
     const client = clientsDb.addClient(req.body);
     res.json({ success: true, client });
@@ -1280,7 +1297,7 @@ app.post('/api/clients', (req, res) => {
 });
 
 // Обновить клиента
-app.put('/api/clients/:id', (req, res) => {
+app.put('/api/clients/:id', validate(validateClient), (req, res) => {
   try {
     const client = clientsDb.updateClient(req.params.id, req.body);
     if (client) {
@@ -1839,34 +1856,52 @@ app.get('/api/download/:filename', (req, res) => {
   res.download(filePath, filename);
 });
 
-// Запуск сервера
-app.listen(PORT, () => {
-  console.log('╔════════════════════════════════════════════════════════╗');
-  console.log('║   Сервер генератора счетов запущен!                   ║');
-  console.log('╚════════════════════════════════════════════════════════╝');
-  console.log('');
-  console.log(`🌐 Откройте браузер: http://localhost:${PORT}`);
-});
+// Запуск сервера с ожиданием инициализации БД
+async function startServer() {
+  // Ждем инициализации всех баз данных
+  console.log('⏳ Инициализация баз данных...');
+  await Promise.all([
+    db.initPromise,
+    warehouseDb.initPromise || Promise.resolve(),
+    clientsDb.initPromise || Promise.resolve(),
+    authDatabase.initPromise || Promise.resolve()
+  ]);
+  console.log('✅ Базы данных готовы\n');
 
-// Дополнительный порт 10801 для внешнего доступа
-const EXTERNAL_PORT = 10801;
-app.listen(EXTERNAL_PORT, () => {
-  console.log(`🌐 Внешний доступ: http://localhost:${EXTERNAL_PORT}`);
-  console.log('');
+  app.listen(PORT, () => {
+    console.log('╔════════════════════════════════════════════════════════╗');
+    console.log('║   Сервер генератора счетов запущен!                   ║');
+    console.log('╚════════════════════════════════════════════════════════╝');
+    console.log('');
+    console.log(`🌐 Откройте браузер: http://localhost:${PORT}`);
+  });
 
-  if (invoiceService.isYandexDiskConfigured()) {
-    console.log('✅ Яндекс.Диск: настроен');
-  } else {
-    console.log('⚠️  Яндекс.Диск: не настроен');
-    console.log('   Для настройки запустите: npm run setup');
-  }
+  // Дополнительный порт 10801 для внешнего доступа
+  const EXTERNAL_PORT = 10801;
+  app.listen(EXTERNAL_PORT, () => {
+    console.log(`🌐 Внешний доступ: http://localhost:${EXTERNAL_PORT}`);
+    console.log('');
 
-  console.log('');
-  console.log('Для остановки нажмите Ctrl+C');
-  console.log('');
+    if (invoiceService.isYandexDiskConfigured()) {
+      console.log('✅ Яндекс.Диск: настроен');
+    } else {
+      console.log('⚠️  Яндекс.Диск: не настроен');
+      console.log('   Для настройки запустите: npm run setup');
+    }
 
-  // Инициализируем WhatsApp Manager
-  initWhatsApp();
+    console.log('');
+    console.log('Для остановки нажмите Ctrl+C');
+    console.log('');
+
+    // Инициализируем WhatsApp Manager
+    initWhatsApp();
+  });
+}
+
+// Запускаем сервер
+startServer().catch(err => {
+  console.error('❌ Ошибка запуска сервера:', err);
+  process.exit(1);
 });
 
 // Инициализация WhatsApp

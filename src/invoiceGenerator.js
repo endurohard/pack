@@ -124,6 +124,14 @@ class InvoiceGenerator {
            .font(useCustomFont ? 'DejaVuBold' : 'Helvetica-Bold')
            .text(`Счет № ${invoiceData.invoiceNumber}`, { align: 'center' });
 
+        // Дата счёта
+        if (invoiceData.invoiceDate) {
+          doc.moveDown(0.2);
+          doc.fontSize(10)
+             .font(useCustomFont ? 'DejaVu' : 'Helvetica')
+             .text(`от ${formatInvoiceDate(invoiceData.invoiceDate)}`, { align: 'center' });
+        }
+
         // Клиент
         if (invoiceData.clientName) {
           doc.moveDown(0.3);
@@ -133,6 +141,15 @@ class InvoiceGenerator {
         }
 
         doc.moveDown(1);
+
+        // Функция форматирования даты
+        function formatInvoiceDate(dateString) {
+          const date = new Date(dateString);
+          const day = String(date.getDate()).padStart(2, '0');
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const year = date.getFullYear();
+          return `${day}.${month}.${year}`;
+        }
 
         // Таблица с товарами
         const tableTop = doc.y;

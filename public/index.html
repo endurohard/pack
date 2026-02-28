@@ -395,6 +395,12 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="invoiceDate">Дата счета *</label>
+                    <input type="date" id="invoiceDate" required>
+                    <small style="color: #666; display: block; margin-top: 5px;">Дата, на которую выставлен счет</small>
+                </div>
+
+                <div class="form-group">
                     <label for="clientName">Клиент (предприятие/ИП/физ.лицо) *</label>
                     <input type="text" id="clientName" required placeholder="Например: ООО Рога и Копыта" list="clientsList" oninput="loadClientPhone(this.value)">
                     <datalist id="clientsList">
@@ -1402,6 +1408,11 @@
 
                     // Заполняем основные поля
                     document.getElementById('invoiceNumber').value = invoice.invoiceNumber;
+                    // Заполняем дату счёта (конвертируем в формат YYYY-MM-DD для input type="date")
+                    if (invoice.invoiceDate) {
+                        const date = new Date(invoice.invoiceDate);
+                        document.getElementById('invoiceDate').value = date.toISOString().split('T')[0];
+                    }
                     document.getElementById('clientName').value = invoice.client || '';
                     document.getElementById('clientPhone').value = invoice.clientPhone || '';
                     document.getElementById('isRecurring').checked = invoice.isRecurring || false;
@@ -1505,6 +1516,12 @@
             loadCurrentInvoiceNumber();
             calculateTotal(); // Инициализируем отображение суммы
 
+            // Устанавливаем текущую дату по умолчанию для нового счёта
+            if (!editId) {
+                const today = new Date().toISOString().split('T')[0];
+                document.getElementById('invoiceDate').value = today;
+            }
+
             if (editId) {
                 console.log('[Init] Вызываем loadInvoiceForEdit с ID:', editId);
                 // Небольшая задержка для гарантии загрузки всех данных
@@ -1532,6 +1549,7 @@
 
             const data = {
                 invoiceNumber: parseInt(document.getElementById('invoiceNumber').value),
+                invoiceDate: document.getElementById('invoiceDate').value,
                 clientName: document.getElementById('clientName').value,
                 clientPhone: document.getElementById('clientPhone').value,
                 isRecurring: document.getElementById('isRecurring').checked,

@@ -683,13 +683,14 @@
                     <span id="totalAmountLabel">отображаемых</span>
                 </div>
             </div>
-            <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+            <!-- Скрыто по запросу пользователя -->
+            <!-- <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
                 <h3 style="color: white;">Всего в системе</h3>
                 <div class="value" id="statGrandTotal" style="color: white;">0₽</div>
                 <div style="font-size: 0.75em; opacity: 0.9; margin-top: 5px;">
                     <span id="grandTotalCount">0</span> счетов
                 </div>
-            </div>
+            </div> -->
         </div>
 
         <div class="table-container">
@@ -932,8 +933,9 @@
                 totalAmount: allInvoices.reduce((sum, inv) => sum + inv.amount, 0)
             };
 
-            document.getElementById('statGrandTotal').textContent = formatMoney(grandStats.totalAmount);
-            document.getElementById('grandTotalCount').textContent = grandStats.total;
+            // Элементы скрыты - не обновляем
+            // document.getElementById('statGrandTotal').textContent = formatMoney(grandStats.totalAmount);
+            // document.getElementById('grandTotalCount').textContent = grandStats.total;
 
             // Обновляем подпись в зависимости от фильтра
             if (invoices.length === allInvoices.length) {
@@ -1007,7 +1009,7 @@
                 // Для счетов с авторассылкой показываем дату следующей отправки, иначе дату создания
                 const dateToShow = invoice.autoSendEnabled && invoice.nextSendDate
                     ? invoice.nextSendDate
-                    : invoice.createdAt;
+                    : (invoice.invoiceDate || invoice.createdAt);
                 const dateLabel = invoice.autoSendEnabled && invoice.nextSendDate
                     ? '<span title="Дата следующей рассылки" style="color: #2e7d32;">📅 ' + formatDate(dateToShow) + '</span>'
                     : formatDate(dateToShow);
