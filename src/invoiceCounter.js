@@ -61,8 +61,8 @@ class InvoiceCounter {
     counter.current += 1;
     this.saveCounter(counter);
 
-    // Форматируем номер (например, 001, 002, ..., 999, 1000)
-    return counter.current.toString().padStart(3, '0');
+    // Возвращаем число, а не строку, чтобы избежать дублирования
+    return counter.current;
   }
 
   /**
