@@ -148,8 +148,10 @@ class AuthDatabase {
    * Validate credentials с автоматической миграцией на PBKDF2
    */
   validateCredentials(username, password) {
-    // ВАЖНО: всегда перечитываем данные из файла перед проверкой
-    this.loadDataSync();
+    // Перечитываем данные из файла только если не инициализированы
+    if (!this.authData) {
+      this.loadDataSync();
+    }
 
     if (username !== this.authData.username) {
       return false;
@@ -168,7 +170,7 @@ class AuthDatabase {
         this.authData.passwordHash = hashPasswordPBKDF2(password, salt);
         this.authData.hashType = 'pbkdf2';
         this.authData.updatedAt = new Date().toISOString();
-        this.saveData().catch(err => console.error('Ошибка сохранения auth:', err));
+        this.saveDataSync(); // Используем синхронное сохранение!
         console.log('[AuthDB] ✅ Пароль успешно мигрирован на PBKDF2 с солью');
         return true;
       }
@@ -191,8 +193,10 @@ class AuthDatabase {
    * Get current username
    */
   getUsername() {
-    // ВАЖНО: всегда перечитываем данные из файла
-    this.loadDataSync();
+    // Перечитываем данные из файла только если не инициализированы
+    if (!this.authData) {
+      this.loadDataSync();
+    }
     return this.authData.username;
   }
 
@@ -200,8 +204,10 @@ class AuthDatabase {
    * Change credentials с PBKDF2
    */
   changeCredentials(currentPassword, newUsername, newPassword) {
-    // ВАЖНО: перечитываем данные из файла перед изменением
-    this.loadDataSync();
+    // Перечитываем данные из файла только если не инициализированы
+    if (!this.authData) {
+      this.loadDataSync();
+    }
 
     // Validate current password
     if (!this.validateCredentials(this.authData.username, currentPassword)) {
@@ -225,12 +231,9 @@ class AuthDatabase {
     this.authData.passwordHash = hashPasswordPBKDF2(newPassword, salt);
     this.authData.hashType = 'pbkdf2';
     this.authData.updatedAt = new Date().toISOString();
-    this.saveData();
+    this.saveDataSync(); // Синхронное сохранение для немедленного применения
 
     console.log('[AuthDB] 🔐 Учётные данные обновлены с PBKDF2');
-
-    // ВАЖНО: перезагружаем данные из файла
-    this.loadDataSync();
 
     return {
       username: this.authData.username,
@@ -242,7 +245,9 @@ class AuthDatabase {
    * Проверить, нужна ли миграция
    */
   needsMigration() {
-    this.loadDataSync();
+    if (!this.authData) {
+      this.loadDataSync();
+    }
     return this.authData.hashType !== 'pbkdf2';
   }
 
@@ -250,7 +255,9 @@ class AuthDatabase {
    * Получить информацию о безопасности
    */
   getSecurityInfo() {
-    this.loadDataSync();
+    if (!this.authData) {
+      this.loadDataSync();
+    }
     return {
       hashType: this.authData.hashType,
       needsMigration: this.needsMigration(),
