@@ -1242,17 +1242,30 @@
         }
 
         function formatDate(dateString) {
-            const date = new Date(dateString);
-            const dateStr = date.toLocaleDateString('ru-RU', {
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric'
-            });
-            const timeStr = date.toLocaleTimeString('ru-RU', {
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-            return `${dateStr}<br><small style="color: #999;">${timeStr}</small>`;
+            if (!dateString) return '';
+
+            // Проверяем формат даты (YYYY-MM-DD без времени)
+            const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
+            const isDateOnly = dateOnlyPattern.test(dateString);
+
+            if (isDateOnly) {
+                // Для формата YYYY-MM-DD парсим вручную, чтобы избежать проблем с временной зоной
+                const [year, month, day] = dateString.split('-');
+                return `${day}.${month}.${year}`;
+            } else {
+                // Для полной даты с временем
+                const date = new Date(dateString);
+                const dateStr = date.toLocaleDateString('ru-RU', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                });
+                const timeStr = date.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+                return `${dateStr}<br><small style="color: #999;">${timeStr}</small>`;
+            }
         }
 
         function formatMoney(amount) {
