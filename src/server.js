@@ -1594,6 +1594,28 @@ app.post('/api/auto-send/check-now', async (req, res) => {
   }
 });
 
+// API endpoint для отметки счета как отправленного клиенту
+app.post('/api/invoices/:id/mark-sent', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { sentDate } = req.body;
+
+    const invoice = db.updateInvoice(id, {
+      sentToClient: sentDate || new Date().toISOString()
+    });
+
+    if (invoice) {
+      console.log(`[Invoice] ✅ Счет №${invoice.invoiceNumber} отмечен как отправленный клиенту`);
+      res.json({ success: true, invoice });
+    } else {
+      res.status(404).json({ error: 'Счет не найден' });
+    }
+  } catch (error) {
+    console.error('[Invoice] ❌ Ошибка отметки счета как отправленного:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // API endpoint для включения/выключения напоминаний об оплате
 app.post('/api/invoices/:id/reminder', (req, res) => {
   try {

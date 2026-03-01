@@ -810,9 +810,10 @@
             const monthSelect = document.getElementById('monthFilter');
             const months = new Map();
 
-            // Собираем уникальные месяцы
+            // Собираем уникальные месяцы (используем invoiceDate, а не createdAt)
             invoices.forEach(invoice => {
-                const date = new Date(invoice.createdAt);
+                const dateString = invoice.invoiceDate || invoice.createdAt;
+                const date = new Date(dateString);
                 const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
                 const monthName = date.toLocaleDateString('ru-RU', { year: 'numeric', month: 'long' });
                 months.set(yearMonth, monthName);
@@ -849,7 +850,8 @@
 
             if (monthFilter !== 'all') {
                 filtered = filtered.filter(invoice => {
-                    const date = new Date(invoice.createdAt);
+                    const dateString = invoice.invoiceDate || invoice.createdAt;
+                    const date = new Date(dateString);
                     const invoiceYearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
                     return invoiceYearMonth === monthFilter;
                 });
@@ -966,6 +968,36 @@
                 const isFullyPaid = invoice.paid || (paidAmount >= invoice.amount);
                 const isPartiallyPaid = !invoice.paid && paidAmount > 0 && paidAmount < invoice.amount;
 
+                // Расчет просрочки для неоплаченных счетов
+                let overdueBadge = '';
+                if (!isFullyPaid) {
+                    // Отсчет идет с даты отправки клиенту (если есть), иначе показываем, что счет не отправлен
+                    if (invoice.lastWhatsAppSent || invoice.sentToClient) {
+                        const sentDate = new Date(invoice.sentToClient || invoice.lastWhatsAppSent);
+                        const today = new Date();
+                        const daysPassed = Math.floor((today - sentDate) / (1000 * 60 * 60 * 24));
+
+                        if (daysPassed > 0) {
+                            let overdueColor = '#999'; // Серый для 0-3 дней
+                            let overdueIcon = '⏱️';
+                            let overdueText = `${daysPassed} ${daysPassed === 1 ? 'день' : daysPassed < 5 ? 'дня' : 'дней'}`;
+
+                            if (daysPassed > 7) {
+                                overdueColor = '#dc3545'; // Красный для >7 дней
+                                overdueIcon = '⚠️';
+                            } else if (daysPassed > 3) {
+                                overdueColor = '#ff9800'; // Оранжевый для 4-7 дней
+                                overdueIcon = '⏰';
+                            }
+
+                            overdueBadge = ` <span style="background: ${overdueColor}20; color: ${overdueColor}; padding: 2px 6px; border-radius: 3px; font-size: 0.7em; cursor: help; border: 1px solid ${overdueColor}40;" title="Отправлен клиенту: ${sentDate.toLocaleDateString('ru-RU')}\nПрошло дней: ${daysPassed}">${overdueIcon} ${overdueText}</span>`;
+                        }
+                    } else {
+                        // Счет еще не отправлен клиенту
+                        overdueBadge = ` <span style="background: #ffc10720; color: #ff6f00; padding: 2px 6px; border-radius: 3px; font-size: 0.7em; cursor: help; border: 1px solid #ff6f0040;" title="Счет не отправлен клиенту. Нажмите кнопку '📤' чтобы отметить как отправленный">📝 Не отправлен</span>`;
+                    }
+                }
+
                 let statusBadge = '';
                 if (isFullyPaid) {
                     statusBadge = '<span class="status-badge status-paid" title="Оплачен полностью">✓</span>';
@@ -1006,6 +1038,11 @@
                     ? `<button class="action-btn action-send-reminder" onclick="sendPaymentReminder('${invoice.id}')" title="Отправить напоминание об оплате">🔔</button>`
                     : '';
 
+                // Кнопка "Отметить как отправленный" - показывается только для неотправленных счетов
+                const markAsSentButton = !invoice.paid && !invoice.lastWhatsAppSent && !invoice.sentToClient
+                    ? `<button class="action-btn" style="background: #17a2b8; color: white;" onclick="markInvoiceAsSent('${invoice.id}')" title="Отметить счет как отправленный клиенту">📤</button>`
+                    : '';
+
                 // Для счетов с авторассылкой показываем дату следующей отправки, иначе дату создания
                 const dateToShow = invoice.autoSendEnabled && invoice.nextSendDate
                     ? invoice.nextSendDate
@@ -1029,7 +1066,7 @@
                 }
 
                 tr.innerHTML = `
-                    <td style="word-break: break-word;"><strong>#${invoice.invoiceNumber}</strong>${recurringBadge}${autoSendBadge}${reminderBadge}${whatsappSentBadge}</td>
+                    <td style="word-break: break-word;"><strong>#${invoice.invoiceNumber}</strong>${recurringBadge}${autoSendBadge}${reminderBadge}${whatsappSentBadge}${overdueBadge}</td>
                     <td style="word-break: break-word;">${invoice.client || '<span style="color: #999;">Не указан</span>'}</td>
                     <td style="font-size: 0.85em;">${dateLabel}</td>
                     <td>${amountDisplay}</td>
@@ -1038,6 +1075,7 @@
                         <div class="actions">
                             <button class="action-btn action-view" onclick="viewInvoice('${invoice.filename}')" title="Просмотр PDF">👁️</button>
                             <button class="action-btn action-whatsapp" data-invoice-id="${invoice.id}" data-invoice-number="${invoice.invoiceNumber}" data-client-name="${invoice.client}" data-client-phone="${invoice.clientPhone || ''}" title="Отправить в WhatsApp">📱</button>
+                            ${markAsSentButton}
                             ${sendReminderButton}
                             ${duplicateButton}
                             ${reminderButton}
@@ -1078,24 +1116,42 @@
                     await updatePartialPayment(id, 0);
                 }
             } else {
-                // Счет не оплачен или частично оплачен - запрашиваем сумму
+                // Счет не оплачен или частично оплачен - показываем варианты
                 const message = paidAmount > 0
-                    ? `Частичная оплата: ${paidAmount.toLocaleString('ru-RU')} ₽\nОстаток: ${remainingAmount.toLocaleString('ru-RU')} ₽\n\nВведите сумму оплаты (или полную сумму для полной оплаты):`
-                    : `Сумма счета: ${invoice.amount.toLocaleString('ru-RU')} ₽\n\nВведите сумму оплаты:`;
+                    ? `Счет №${invoice.invoiceNumber}\n\nОбщая сумма: ${invoice.amount.toLocaleString('ru-RU')} ₽\nОплачено: ${paidAmount.toLocaleString('ru-RU')} ₽\nОстаток: ${remainingAmount.toLocaleString('ru-RU')} ₽\n\nВыберите действие:\n\n1. Оплатить остаток полностью (${remainingAmount.toLocaleString('ru-RU')} ₽)\n2. Ввести другую сумму\n3. Отмена`
+                    : `Счет №${invoice.invoiceNumber}\nСумма: ${invoice.amount.toLocaleString('ru-RU')} ₽\n\nВыберите действие:\n\n1. Оплатить полностью (${invoice.amount.toLocaleString('ru-RU')} ₽)\n2. Частичная оплата (ввести сумму)\n3. Отмена`;
 
-                const input = prompt(message, remainingAmount.toLocaleString('ru-RU'));
+                const choice = prompt(message, '1');
 
-                if (input !== null) {
-                    // Парсим введенную сумму (убираем пробелы и запятые)
-                    const amount = parseFloat(input.replace(/[^\d.]/g, ''));
+                if (choice === null || choice === '3') {
+                    return; // Отмена
+                }
 
-                    if (isNaN(amount) || amount < 0) {
-                        alert('Некорректная сумма');
-                        return;
+                if (choice === '1') {
+                    // Оплатить полностью
+                    await updatePartialPayment(id, invoice.amount);
+                } else if (choice === '2') {
+                    // Ввести сумму вручную
+                    const sumMessage = paidAmount > 0
+                        ? `Введите сумму оплаты:\n\nТекущая оплата: ${paidAmount.toLocaleString('ru-RU')} ₽\nОстаток: ${remainingAmount.toLocaleString('ru-RU')} ₽`
+                        : `Введите сумму оплаты:\n\nОбщая сумма счета: ${invoice.amount.toLocaleString('ru-RU')} ₽`;
+
+                    const input = prompt(sumMessage, remainingAmount.toLocaleString('ru-RU'));
+
+                    if (input !== null) {
+                        // Парсим введенную сумму (убираем пробелы и запятые)
+                        const amount = parseFloat(input.replace(/[^\d.]/g, ''));
+
+                        if (isNaN(amount) || amount < 0) {
+                            alert('Некорректная сумма');
+                            return;
+                        }
+
+                        const newPaidAmount = paidAmount + amount;
+                        await updatePartialPayment(id, newPaidAmount);
                     }
-
-                    const newPaidAmount = paidAmount + amount;
-                    await updatePartialPayment(id, newPaidAmount);
+                } else {
+                    alert('Некорректный выбор. Введите 1, 2 или 3.');
                 }
             }
         }
@@ -1728,6 +1784,42 @@
             } catch (error) {
                 console.error('Ошибка:', error);
                 alert('Ошибка переключения напоминаний');
+            }
+        }
+
+        // Функция для отметки счета как отправленного
+        async function markInvoiceAsSent(invoiceId) {
+            try {
+                const invoice = allInvoices.find(inv => inv.id === invoiceId);
+                if (!invoice) {
+                    alert('❌ Счет не найден');
+                    return;
+                }
+
+                if (!confirm(`Отметить счет №${invoice.invoiceNumber} как отправленный клиенту?\n\nС этого момента начнется отсчет просрочки оплаты.`)) {
+                    return;
+                }
+
+                const response = await fetch(`/api/invoices/${invoiceId}/mark-sent`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sentDate: new Date().toISOString() })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification(
+                        '✅ Счет отмечен как отправленный',
+                        `Счет №${invoice.invoiceNumber} отправлен клиенту. Начат отсчет просрочки.`
+                    );
+                    loadInvoices(); // Перезагружаем список
+                } else {
+                    alert('❌ Ошибка: ' + (result.error || 'Неизвестная ошибка'));
+                }
+            } catch (error) {
+                console.error('Ошибка:', error);
+                alert('❌ Ошибка при отметке счета как отправленного');
             }
         }
 
