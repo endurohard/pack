@@ -1020,10 +1020,23 @@ app.post('/api/invoices/:id/duplicate', async (req, res) => {
       }
     }
 
+    // Вычисляем дату нового счета (следующий месяц от оригинала)
+    let newInvoiceDate;
+    if (originalInvoice.invoiceDate) {
+      const originalDate = new Date(originalInvoice.invoiceDate);
+      newInvoiceDate = new Date(originalDate);
+      newInvoiceDate.setMonth(newInvoiceDate.getMonth() + 1);
+      newInvoiceDate = newInvoiceDate.toISOString().split('T')[0];
+    } else {
+      newInvoiceDate = new Date().toISOString().split('T')[0];
+    }
+
     // Генерируем имя файла
     const clientNameClean = sanitizeFilename(originalInvoice.client);
-    const dateStr = new Date().toISOString().split('T')[0];
-    const filename = `Счет_${newInvoiceNumber}_${clientNameClean}_${dateStr}.pdf`;
+    const filename = `Счет_${newInvoiceNumber}_${clientNameClean}_${newInvoiceDate}.pdf`;
+
+    // Добавляем дату счета в данные для генерации PDF
+    invoiceData.invoiceDate = newInvoiceDate;
 
     // Генерируем PDF
     await invoiceService.createInvoice(invoiceData, filename);
@@ -1039,6 +1052,7 @@ app.post('/api/invoices/:id/duplicate', async (req, res) => {
       clientPhone: originalInvoice.clientPhone || '',
       isRecurring: originalInvoice.isRecurring || false,
       payment: invoiceData.payment,
+      invoiceDate: newInvoiceDate,
       yandexPath: null,
       publicUrl: null
     });

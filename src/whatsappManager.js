@@ -15,6 +15,13 @@ class WhatsAppManager {
     this.page = null;
     this.isReady = false;
     this.sessionDir = path.join(__dirname, '../data/whatsapp-session');
+    this.testMode = process.env.WHATSAPP_TEST_MODE === 'true';
+    this.testPhone = process.env.WHATSAPP_TEST_PHONE || '79999999999';
+
+    if (this.testMode) {
+      console.log('🧪 WhatsApp в ТЕСТОВОМ режиме - сообщения НЕ будут отправляться');
+      console.log(`🧪 Тестовый номер: ${this.testPhone}`);
+    }
 
     if (!fs.existsSync(this.sessionDir)) {
       fs.mkdirSync(this.sessionDir, { recursive: true });
@@ -76,6 +83,13 @@ class WhatsAppManager {
   }
 
   async initialize() {
+    // В тестовом режиме браузер не запускаем
+    if (this.testMode) {
+      console.log('🧪 ТЕСТОВЫЙ РЕЖИМ: Браузер не запускается');
+      this.isReady = true;
+      return;
+    }
+
     try {
       console.log('📱 Инициализация WhatsApp Web через Puppeteer...');
 
@@ -94,7 +108,9 @@ class WhatsAppManager {
           '--no-first-run',
           '--no-zygote',
           '--disable-gpu',
-          '--proxy-server=socks5://127.0.0.1:1080'
+          '--disable-blink-features=AutomationControlled', // Скрыть automation
+          '--disable-web-security', // Отключить CORS для работы WhatsApp
+          '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36'
         ]
       });
 
@@ -108,27 +124,65 @@ class WhatsAppManager {
       });
 
       console.log('⏳ Ожидание загрузки WhatsApp Web...');
-      console.log('📱 Отсканируйте QR-код в браузере');
+      console.log('📱 Отсканируйте QR-код в браузере (если требуется)');
 
       // Проверяем авторизацию (несколько вариантов селекторов)
+      let checkCount = 0;
+      const maxChecks = 60; // 60 проверок * 5 сек = 5 минут
+
       const checkAuth = setInterval(async () => {
         try {
-          const isAuthenticated = await this.page.evaluate(() => {
+          checkCount++;
+
+          const pageState = await this.page.evaluate(() => {
             // Проверяем несколько возможных селекторов для авторизованной страницы
             const hasChats = document.querySelector('[data-testid="chat-list"]') !== null;
             const hasSidebar = document.querySelector('#side') !== null;
             const hasUserAvatar = document.querySelector('[data-testid="default-user"]') !== null;
             const noLanding = document.querySelector('.landing-main') === null;
+            const hasQR = document.querySelector('[data-testid="qrcode"]') !== null;
+            const pageText = document.body.textContent || '';
 
-            // Если есть хотя бы 2 признака авторизации
-            const authCount = [hasChats, hasSidebar, hasUserAvatar, noLanding].filter(Boolean).length;
-            return authCount >= 2;
+            return {
+              hasChats,
+              hasSidebar,
+              hasUserAvatar,
+              noLanding,
+              hasQR,
+              hasConnectionError: pageText.includes('Connecting') || pageText.includes('Подключение'),
+              url: window.location.href
+            };
           });
+
+          // Логируем состояние каждые 10 секунд
+          if (checkCount % 2 === 0) {
+            console.log(`[WhatsApp] Проверка ${checkCount}/${maxChecks}:`, {
+              chats: pageState.hasChats,
+              sidebar: pageState.hasSidebar,
+              avatar: pageState.hasUserAvatar,
+              qr: pageState.hasQR,
+              url: pageState.url.substring(0, 50)
+            });
+          }
+
+          // Если есть хотя бы 2 признака авторизации
+          const authCount = [
+            pageState.hasChats,
+            pageState.hasSidebar,
+            pageState.hasUserAvatar,
+            pageState.noLanding
+          ].filter(Boolean).length;
+
+          const isAuthenticated = authCount >= 2;
 
           if (isAuthenticated) {
             clearInterval(checkAuth);
             this.isReady = true;
             console.log('✅ WhatsApp Web готов к использованию!');
+          } else if (checkCount >= maxChecks) {
+            clearInterval(checkAuth);
+            console.error('❌ Таймаут ожидания авторизации WhatsApp (5 минут)');
+            console.log('📱 Попробуйте перезапустить через API: POST /api/whatsapp/restart');
           }
         } catch (e) {
           // Игнорируем ошибки при проверке
@@ -162,6 +216,28 @@ class WhatsAppManager {
   }
 
   async sendMessage(phone, message) {
+    // Обработка тестового режима
+    if (this.testMode) {
+      let cleanPhone = phone.replace(/[^0-9]/g, '');
+      if (cleanPhone.startsWith('8')) {
+        cleanPhone = '7' + cleanPhone.substring(1);
+      }
+      if (!cleanPhone.startsWith('7')) {
+        cleanPhone = '7' + cleanPhone;
+      }
+
+      console.log('🧪 ТЕСТОВЫЙ РЕЖИМ: Сообщение НЕ отправлено');
+      console.log(`  📱 Получатель: ${cleanPhone}`);
+      console.log(`  💬 Сообщение: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
+
+      return {
+        success: true,
+        message: 'Сообщение отправлено (ТЕСТОВЫЙ РЕЖИМ)',
+        testMode: true,
+        recipient: cleanPhone
+      };
+    }
+
     if (!this.isReady || !this.page) {
       throw new Error('WhatsApp Web не готов');
     }
@@ -391,6 +467,37 @@ class WhatsAppManager {
   }
 
   async sendMessageWithFile(phone, message, filePath) {
+    // Обработка тестового режима
+    if (this.testMode) {
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`Файл не найден: ${filePath}`);
+      }
+
+      let cleanPhone = phone.replace(/[^0-9]/g, '');
+      if (cleanPhone.startsWith('8')) {
+        cleanPhone = '7' + cleanPhone.substring(1);
+      }
+      if (!cleanPhone.startsWith('7')) {
+        cleanPhone = '7' + cleanPhone;
+      }
+
+      const fileSize = fs.statSync(filePath).size;
+      const fileName = path.basename(filePath);
+
+      console.log('🧪 ТЕСТОВЫЙ РЕЖИМ: Файл НЕ отправлен');
+      console.log(`  📱 Получатель: ${cleanPhone}`);
+      console.log(`  📄 Файл: ${fileName} (${fileSize} байт)`);
+      console.log(`  💬 Сопроводительный текст: ${message || '(нет)'}`);
+
+      return {
+        success: true,
+        message: 'Файл отправлен (ТЕСТОВЫЙ РЕЖИМ)',
+        testMode: true,
+        recipient: cleanPhone,
+        file: fileName
+      };
+    }
+
     if (!this.isReady || !this.page) {
       throw new Error('WhatsApp Web не готов');
     }
@@ -592,40 +699,81 @@ class WhatsAppManager {
 
       // Ждем появления меню с опциями
       console.log('⏳ Ожидание меню прикрепления...');
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
-      // ВАЖНО: Нужно кликнуть на пункт меню "Документ"
+      // ВАЖНО: Нужно кликнуть на пункт меню "Документ" (или "Document")
       console.log('📄 Ищу пункт меню "Документ"...');
 
-      // Используем evaluate для поиска элемента по тексту
+      // Используем evaluate для поиска элемента по тексту (русский/английский)
       const documentButton = await this.page.evaluate(() => {
-        // Ищем все элементы, которые содержат текст "Документ"
-        const elements = Array.from(document.querySelectorAll('span, div, li'));
-        const docElement = elements.find(el => el.textContent.trim() === 'Документ');
+        // Ищем все элементы, которые содержат текст "Документ" или "Document"
+        const elements = Array.from(document.querySelectorAll('span, div, li, button'));
 
-        if (docElement) {
-          // Находим кликабельный родительский элемент (обычно это li или button)
-          let clickable = docElement;
-          while (clickable && clickable.tagName !== 'LI' && clickable.tagName !== 'BUTTON') {
-            clickable = clickable.parentElement;
-          }
+        // Ищем элемент с точным текстом "Документ"
+        let docElement = elements.find(el => {
+          const text = el.textContent.trim();
+          return text === 'Документ' || text === 'Document';
+        });
 
-          if (clickable) {
-            clickable.click();
-            return true;
-          }
+        // Если не нашли точное совпадение, ищем частичное
+        if (!docElement) {
+          docElement = elements.find(el => {
+            const text = el.textContent.trim().toLowerCase();
+            return text.includes('документ') || text.includes('document');
+          });
         }
 
-        return false;
+        if (docElement) {
+          // Пробуем кликнуть на сам элемент
+          docElement.click();
+
+          // Также пробуем кликнуть на родительские элементы
+          let clickable = docElement.parentElement;
+          let maxDepth = 10; // Увеличиваем глубину поиска
+          while (clickable && maxDepth > 0) {
+            // Кликаем на любой родительский элемент с cursor pointer или role
+            const style = window.getComputedStyle(clickable);
+            const hasRole = clickable.getAttribute('role');
+            const hasClick = clickable.onclick || style.cursor === 'pointer';
+
+            if (hasRole || hasClick || clickable.tagName === 'LI' || clickable.tagName === 'BUTTON') {
+              clickable.click();
+              return { success: true, text: docElement.textContent.trim().substring(0, 50), tag: clickable.tagName };
+            }
+            clickable = clickable.parentElement;
+            maxDepth--;
+          }
+
+          // Если ничего не сработало, возвращаем успех от клика на сам элемент
+          return { success: true, text: docElement.textContent.trim().substring(0, 50), tag: 'SPAN' };
+        }
+
+        // Если не нашли, пробуем найти по data-testid
+        const docByTestId = document.querySelector('[data-testid*="document"], [data-testid*="attach-document"]');
+        if (docByTestId) {
+          docByTestId.click();
+          return { success: true, text: 'testid', tag: 'TESTID' };
+        }
+
+        return { success: false };
       });
 
-      if (!documentButton) {
+      if (!documentButton.success) {
+        // Сохраняем скриншот и HTML для анализа
         await this.page.screenshot({ path: '/tmp/whatsapp_no_doc_button.png' });
+
+        // Получаем текст всех элементов в меню для отладки
+        const menuItems = await this.page.evaluate(() => {
+          const items = Array.from(document.querySelectorAll('span, li, button'));
+          return items.map(el => el.textContent.trim()).filter(t => t.length > 0 && t.length < 50);
+        });
+
         console.error('❌ Пункт меню "Документ" не найден');
+        console.log('📋 Доступные пункты меню:', menuItems.slice(0, 20));
         throw new Error('Пункт меню "Документ" не найден');
       }
 
-      console.log('✅ Кликнул на пункт "Документ"');
+      console.log('✅ Кликнул на пункт "Документ":', documentButton.text);
 
       // Даем время на активацию input для документов
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -967,7 +1115,8 @@ class WhatsAppManager {
     return {
       isReady: this.isReady,
       browserActive: this.browser !== null && this.page !== null,
-      sessionExists: fs.existsSync(this.sessionDir)
+      sessionExists: fs.existsSync(this.sessionDir),
+      testMode: this.testMode
     };
   }
 
