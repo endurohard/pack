@@ -202,6 +202,20 @@ app.post('/api/invoice', async (req, res) => {
       return res.status(400).json({ error: 'Не все обязательные поля заполнены' });
     }
 
+    // Проверка на дублирование номера счета
+    const existingInvoice = db.getInvoiceByNumber(invoiceNumber);
+    if (existingInvoice) {
+      console.warn(`⚠️  Попытка создания дублирующего счета №${invoiceNumber}. Существующий счет: клиент "${existingInvoice.client}", дата "${existingInvoice.invoiceDate}"`);
+      return res.status(400).json({
+        error: `Счет с номером ${invoiceNumber} уже существует`,
+        details: {
+          existingClient: existingInvoice.client,
+          existingDate: existingInvoice.invoiceDate,
+          existingAmount: existingInvoice.amount
+        }
+      });
+    }
+
     // Подготавливаем данные счета
     const invoiceData = {
       invoiceNumber,
@@ -234,9 +248,9 @@ app.post('/api/invoice', async (req, res) => {
       }
     }
 
-    // Генерируем имя файла на основе названия клиента
+    // Генерируем имя файла на основе названия клиента и даты счета
     const clientNameClean = sanitizeFilename(clientName);
-    const dateStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const dateStr = invoiceData.invoiceDate.split('T')[0]; // YYYY-MM-DD из даты счета
     const filename = `Счет_${invoiceNumber}_${clientNameClean}_${dateStr}.pdf`;
 
     let yandexPath = null;
@@ -540,6 +554,21 @@ app.put('/api/invoices/:id', async (req, res) => {
       return res.status(404).json({ error: 'Счет не найден' });
     }
 
+    // Если номер счета изменился, проверяем на дублирование
+    if (invoiceNumber !== existingInvoice.invoiceNumber) {
+      const duplicateInvoice = db.getInvoiceByNumber(invoiceNumber);
+      if (duplicateInvoice) {
+        console.warn(`⚠️  Попытка изменить номер счета на существующий №${invoiceNumber}`);
+        return res.status(400).json({
+          error: `Счет с номером ${invoiceNumber} уже существует`,
+          details: {
+            existingClient: duplicateInvoice.client,
+            existingDate: duplicateInvoice.invoiceDate
+          }
+        });
+      }
+    }
+
     // Подготавливаем данные счета
     const invoiceData = {
       invoiceNumber,
@@ -572,9 +601,9 @@ app.put('/api/invoices/:id', async (req, res) => {
       }
     }
 
-    // Генерируем новое имя файла
+    // Генерируем новое имя файла на основе даты счета
     const clientNameClean = sanitizeFilename(clientName);
-    const dateStr = new Date().toISOString().split('T')[0];
+    const dateStr = invoiceData.invoiceDate.split('T')[0]; // YYYY-MM-DD из даты счета
     const filename = `Счет_${invoiceNumber}_${clientNameClean}_${dateStr}.pdf`;
 
     // Удаляем старый PDF файл
@@ -666,12 +695,24 @@ app.put('/api/invoices/:id/payment', async (req, res) => {
           }
         }
 
-        // Вычисляем дату следующей отправки (текущая дата + 1 месяц, то же число)
-        const nextSendDate = new Date();
-        nextSendDate.setMonth(nextSendDate.getMonth() + 1);
+        // Вычисляем дату следующей отправки на основе текущего nextSendDate оплаченного счета
+        // Это сохраняет правильное число месяца (например, 13 число)
+        let nextSendDate;
+        if (invoice.nextSendDate) {
+          // Используем nextSendDate из оплаченного счета и добавляем 1 месяц
+          const { addMonth } = await import('./dateUtils.js');
+          nextSendDate = addMonth(new Date(invoice.nextSendDate));
+        } else {
+          // Если nextSendDate не было, используем текущую дату + 1 месяц
+          nextSendDate = new Date();
+          nextSendDate.setMonth(nextSendDate.getMonth() + 1);
+        }
 
-        // ✅ ИСПРАВЛЕНО: Дата создания нового счета = дата следующей отправки (следующий месяц)
+        // Дата создания нового счета = дата следующей отправки
         const nextMonthDate = new Date(nextSendDate);
+
+        // Подготавливаем данные для генерации PDF с правильной датой счета
+        invoiceData.invoiceDate = nextMonthDate.toISOString();
 
         // Генерируем имя файла с датой следующего месяца
         const clientNameClean = sanitizeFilename(invoice.client);
@@ -995,6 +1036,16 @@ app.post('/api/invoices/:id/duplicate', async (req, res) => {
 
     // Получаем новый номер счета
     const newInvoiceNumber = invoiceCounter.getNextInvoiceNumber();
+
+    // Проверка на дублирование номера счета (на всякий случай)
+    const duplicateCheck = db.getInvoiceByNumber(newInvoiceNumber);
+    if (duplicateCheck) {
+      console.error(`❌ КРИТИЧЕСКАЯ ОШИБКА: Счетчик сгенерировал существующий номер ${newInvoiceNumber}`);
+      return res.status(500).json({
+        error: `Ошибка генерации номера счета. Номер ${newInvoiceNumber} уже используется.`,
+        suggestion: 'Проверьте счетчик счетов в настройках'
+      });
+    }
 
     // Подготавливаем данные для нового счета
     const invoiceData = {
@@ -1398,8 +1449,8 @@ app.post('/api/whatsapp/send-file', async (req, res) => {
     const outputDir = path.join(__dirname, '../output');
     const files = fs.readdirSync(outputDir);
 
-    // Ищем файл, который содержит номер счета
-    const pdfFile = files.find(f => {
+    // Ищем все файлы, которые содержат номер счета
+    const matchingFiles = files.filter(f => {
       if (!f.endsWith('.pdf')) return false;
 
       // Поддерживаем разные форматы:
@@ -1421,10 +1472,54 @@ app.post('/api/whatsapp/send-file', async (req, res) => {
       return false;
     });
 
-    if (!pdfFile) {
+    if (matchingFiles.length === 0) {
       console.error(`PDF файл для счета ${invoiceId} не найден в ${outputDir}`);
       console.error(`Доступные файлы:`, files.filter(f => f.endsWith('.pdf')));
       return res.status(404).json({ error: 'PDF файл не найден' });
+    }
+
+    // Получаем информацию о счете из базы данных для проверки имени клиента
+    const invoice = db.getInvoiceByNumber(invoiceId);
+
+    // Если найдено несколько файлов с одним номером, выбираем по имени клиента или по дате
+    let pdfFile = matchingFiles[0];
+    if (matchingFiles.length > 1) {
+      console.warn(`⚠️  Найдено ${matchingFiles.length} файлов для счета ${invoiceId}: ${matchingFiles.join(', ')}`);
+
+      // Если есть информация о клиенте из БД, пытаемся найти файл с его именем
+      if (invoice && invoice.client) {
+        const clientNameClean = sanitizeFilename(invoice.client);
+        const fileWithClientName = matchingFiles.find(f => f.includes(clientNameClean));
+
+        if (fileWithClientName) {
+          pdfFile = fileWithClientName;
+          console.log(`✅ Выбран файл по имени клиента "${invoice.client}": ${pdfFile}`);
+        } else {
+          console.warn(`⚠️  Файл с именем клиента "${clientNameClean}" не найден, выбираем по дате модификации`);
+
+          // Если не нашли по имени, выбираем самый свежий
+          const filesWithStats = matchingFiles.map(f => {
+            const filePath = path.join(outputDir, f);
+            const stats = fs.statSync(filePath);
+            return { name: f, mtime: stats.mtime };
+          });
+
+          filesWithStats.sort((a, b) => b.mtime - a.mtime);
+          pdfFile = filesWithStats[0].name;
+          console.log(`✅ Выбран самый свежий файл: ${pdfFile} (изменен: ${filesWithStats[0].mtime.toISOString()})`);
+        }
+      } else {
+        // Если нет информации о клиенте, выбираем по дате модификации
+        const filesWithStats = matchingFiles.map(f => {
+          const filePath = path.join(outputDir, f);
+          const stats = fs.statSync(filePath);
+          return { name: f, mtime: stats.mtime };
+        });
+
+        filesWithStats.sort((a, b) => b.mtime - a.mtime);
+        pdfFile = filesWithStats[0].name;
+        console.log(`✅ Выбран самый свежий файл: ${pdfFile} (изменен: ${filesWithStats[0].mtime.toISOString()})`);
+      }
     }
 
     const pdfPath = path.join(outputDir, pdfFile);
@@ -1433,18 +1528,14 @@ app.post('/api/whatsapp/send-file', async (req, res) => {
     const result = await whatsappManager.sendMessageWithFile(phone, message, pdfPath);
 
     // Если отправка успешна, обновляем информацию о счете
-    if (result.success) {
-      // Находим счет по номеру
-      const invoice = db.getInvoiceByNumber(invoiceId);
-      if (invoice) {
-        db.updateInvoice(invoice.id, {
-          lastWhatsAppSent: new Date().toISOString(),
-          whatsAppSentCount: (invoice.whatsAppSentCount || 0) + 1,
-          // Автоматически включаем напоминания при первой отправке
-          reminderEnabled: invoice.reminderEnabled !== undefined ? invoice.reminderEnabled : true
-        });
-        console.log(`Счет №${invoiceId} отмечен как отправленный через WhatsApp`);
-      }
+    if (result.success && invoice) {
+      db.updateInvoice(invoice.id, {
+        lastWhatsAppSent: new Date().toISOString(),
+        whatsAppSentCount: (invoice.whatsAppSentCount || 0) + 1,
+        // Автоматически включаем напоминания при первой отправке
+        reminderEnabled: invoice.reminderEnabled !== undefined ? invoice.reminderEnabled : true
+      });
+      console.log(`Счет №${invoiceId} отмечен как отправленный через WhatsApp`);
     }
 
     res.json(result);

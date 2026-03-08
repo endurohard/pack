@@ -810,9 +810,10 @@
             const monthSelect = document.getElementById('monthFilter');
             const months = new Map();
 
-            // Собираем уникальные месяцы (используем invoiceDate, а не createdAt)
+            // Собираем уникальные месяцы (используем nextSendDate для запланированных отправок, иначе invoiceDate)
             invoices.forEach(invoice => {
-                const dateString = invoice.invoiceDate || invoice.createdAt;
+                // Приоритет: nextSendDate (запланированная отправка) > invoiceDate > createdAt
+                const dateString = invoice.nextSendDate || invoice.invoiceDate || invoice.createdAt;
                 const date = new Date(dateString);
                 const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
                 const monthName = date.toLocaleDateString('ru-RU', { year: 'numeric', month: 'long' });
@@ -850,7 +851,8 @@
 
             if (monthFilter !== 'all') {
                 filtered = filtered.filter(invoice => {
-                    const dateString = invoice.invoiceDate || invoice.createdAt;
+                    // Используем ту же логику что и при заполнении фильтра: nextSendDate > invoiceDate > createdAt
+                    const dateString = invoice.nextSendDate || invoice.invoiceDate || invoice.createdAt;
                     const date = new Date(dateString);
                     const invoiceYearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
                     return invoiceYearMonth === monthFilter;
