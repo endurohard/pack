@@ -110,7 +110,8 @@ class WhatsAppManager {
           '--disable-gpu',
           '--disable-blink-features=AutomationControlled', // Скрыть automation
           '--disable-web-security', // Отключить CORS для работы WhatsApp
-          '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36'
+          '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
+          '--proxy-server=socks5://127.0.0.1:1080' // Прокси для доступа к WhatsApp
         ]
       });
 
