@@ -91,6 +91,40 @@ class InvoiceCounter {
     counter.current = parseInt(value) || 0;
     this.saveCounter(counter);
   }
+
+  /**
+   * Синхронизировать счетчик с базой данных счетов
+   * Устанавливает счетчик на максимальный номер из базы + 1
+   */
+  syncWithDatabase(invoiceDatabase) {
+    try {
+      const allInvoices = invoiceDatabase.getAllInvoices();
+
+      if (!allInvoices || allInvoices.length === 0) {
+        console.log('📊 База счетов пуста, счетчик остается без изменений');
+        return;
+      }
+
+      // Находим максимальный номер счета
+      const maxInvoiceNumber = allInvoices.reduce((max, invoice) => {
+        const num = parseInt(invoice.invoiceNumber) || 0;
+        return num > max ? num : max;
+      }, 0);
+
+      const currentCounter = this.getCurrentNumber();
+
+      if (maxInvoiceNumber >= currentCounter) {
+        // Счетчик отстает от базы - обновляем
+        const newCounter = maxInvoiceNumber + 1;
+        this.setCounter(newCounter);
+        console.log(`🔄 Синхронизация счетчика: ${currentCounter} → ${newCounter} (максимальный номер в базе: ${maxInvoiceNumber})`);
+      } else {
+        console.log(`✅ Счетчик синхронизирован (текущий: ${currentCounter}, максимальный в базе: ${maxInvoiceNumber})`);
+      }
+    } catch (error) {
+      console.error('❌ Ошибка синхронизации счетчика:', error);
+    }
+  }
 }
 
 // Экспортируем единственный экземпляр

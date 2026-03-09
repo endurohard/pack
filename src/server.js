@@ -1995,6 +1995,11 @@ async function startServer() {
   ]);
   console.log('✅ Базы данных готовы\n');
 
+  // Синхронизируем счетчик с базой данных
+  console.log('🔄 Синхронизация счетчика счетов...');
+  invoiceCounter.syncWithDatabase(db);
+  console.log('');
+
   app.listen(PORT, () => {
     console.log('╔════════════════════════════════════════════════════════╗');
     console.log('║   Сервер генератора счетов запущен!                   ║');
