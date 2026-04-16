@@ -7,29 +7,31 @@
  * Получить дату для расчета просрочки счета
  *
  * Логика приоритетов:
- * 1. lastWhatsAppSent (дата фактической отправки через WhatsApp) - ПРИОРИТЕТ!
- * 2. scheduledSendTime (если установлено)
- * 3. createdAt (дата создания счета)
+ * 1. lastWhatsAppSent (дата фактической отправки через WhatsApp)
+ * 2. sentToClient (отмечен как отправленный клиенту вручную)
  *
- * ВАЖНО: Для расчета просрочки всегда используем дату РЕАЛЬНОЙ отправки счета,
- * а не вычисленные даты для регулярных счетов.
+ * ВАЖНО: Просрочка начинается ТОЛЬКО после фактической отправки счета клиенту.
+ * Если счет не отправлен — возвращает null (просрочки нет).
  *
  * @param {Object} invoice - Объект счета
- * @returns {Date} Дата для расчета просрочки
+ * @returns {Date|null} Дата отправки клиенту или null если не отправлен
  */
 function getInvoiceSentDate(invoice) {
-  // Для счетов, отправленных через WhatsApp - используем дату реальной отправки
+  // Просрочка считается ТОЛЬКО от даты фактической отправки клиенту.
+  // Если счет не отправлен — просрочки нет (возвращаем null).
+
+  // Приоритет 1: Дата отправки через WhatsApp (факт отправки клиенту)
   if (invoice.lastWhatsAppSent) {
     return new Date(invoice.lastWhatsAppSent);
   }
 
-  // Для счетов с запланированным временем
-  if (invoice.scheduledSendTime) {
-    return new Date(invoice.scheduledSendTime);
+  // Приоритет 2: Отмечен как отправленный клиенту вручную
+  if (invoice.sentToClient) {
+    return new Date(invoice.sentToClient);
   }
 
-  // По умолчанию - дата создания
-  return new Date(invoice.createdAt);
+  // Счет не отправлен клиенту — просрочки нет
+  return null;
 }
 
 /**
@@ -156,7 +158,30 @@ function getDaysWord(days) {
   return 'дней';
 }
 
+/**
+ * Получить текущий час по московскому времени (UTC+3)
+ * @returns {number} Час 0-23 по МСК
+ */
+function getMoscowHour() {
+  const now = new Date();
+  const moscowOffset = 3 * 60; // UTC+3 в минутах
+  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const moscowMinutes = utcMinutes + moscowOffset;
+  return Math.floor(((moscowMinutes % 1440) + 1440) % 1440 / 60);
+}
+
+/**
+ * Проверить, попадает ли текущее время в рабочие часы по МСК (10:00-20:00)
+ * @returns {boolean} true если сейчас рабочее время по МСК
+ */
+function isMoscowWorkingHours() {
+  const hour = getMoscowHour();
+  return hour >= 10 && hour < 20;
+}
+
 export {
+  getMoscowHour,
+  isMoscowWorkingHours,
   getInvoiceSentDate,
   subtractMonth,
   addMonth,

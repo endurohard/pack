@@ -1,5 +1,6 @@
-import InvoiceDatabase from './invoiceDatabase.js';
+// InvoiceDatabase передаётся через конструктор
 import WhatsAppManager from './whatsappManager.js';
+import { getInvoiceSentDate, daysBetween, getDaysWord, isMoscowWorkingHours } from './dateUtils.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -13,8 +14,8 @@ const __dirname = path.dirname(__filename);
  * Отправляет счета с интервалом 10 минут между разными компаниями
  */
 class AutoSendScheduler {
-  constructor(whatsappManager) {
-    this.db = new InvoiceDatabase();
+  constructor(whatsappManager, db) {
+    this.db = db;
     this.whatsappManager = whatsappManager;
     this.isProcessing = false;
     this.checkInterval = 10 * 60 * 1000; // 10 минут в миллисекундах
@@ -68,12 +69,12 @@ class AutoSendScheduler {
       return false;
     }
 
-    // Проверяем, что не прошло больше 10 минут с момента планируемой отправки
+    // Проверяем, что не прошло больше 24 часов с момента планируемой отправки
     const diffMs = now - sendDate;
-    const diffMinutes = diffMs / (1000 * 60);
+    const diffHours = diffMs / (1000 * 60 * 60);
 
-    // Разрешаем отправку в течение 10 минут после указанного времени
-    return diffMinutes >= 0 && diffMinutes < 10;
+    // Разрешаем отправку в течение 24 часов после указанного времени
+    return diffHours >= 0 && diffHours < 24;
   }
 
   /**
@@ -139,6 +140,12 @@ class AutoSendScheduler {
     try {
       this.isProcessing = true;
 
+      // Проверяем рабочие часы по МСК (10:00-20:00)
+      if (!isMoscowWorkingHours()) {
+        console.log('[AutoSend] Сейчас нерабочее время по МСК (допустимо 10:00-20:00), пропускаем отправку');
+        return;
+      }
+
       console.log('[AutoSend] Проверка счетов для автоматической отправки...');
 
       const invoices = this.db.getInvoicesForAutoSend();
@@ -192,12 +199,23 @@ class AutoSendScheduler {
           this.db.updateNextSendDate(invoice.id);
 
           // Обновляем информацию об отправке через WhatsApp
-          this.db.updateInvoice(invoice.id, {
-            lastWhatsAppSent: new Date().toISOString(),
+          const isFirstSend = !invoice.whatsAppSentCount || invoice.whatsAppSentCount === 0;
+          const currentDate = new Date().toISOString();
+
+          const updateData = {
+            lastWhatsAppSent: currentDate,
             whatsAppSentCount: (invoice.whatsAppSentCount || 0) + 1,
             // Автоматически включаем напоминания при автоматической отправке
             reminderEnabled: true
-          });
+          };
+
+          // При первой отправке устанавливаем дату выставления счета
+          if (isFirstSend) {
+            updateData.invoiceDate = currentDate;
+            console.log(`[AutoSend] 📅 Счет №${invoice.invoiceNumber}: установлена дата выставления ${new Date(currentDate).toLocaleDateString('ru-RU')}`);
+          }
+
+          this.db.updateInvoice(invoice.id, updateData);
 
           console.log(`[AutoSend] ✅ Счет №${invoice.invoiceNumber} успешно отправлен`);
           console.log(`[AutoSend] Следующая отправка: ${new Date(invoice.nextSendDate).toLocaleString('ru-RU')}`);
@@ -261,29 +279,6 @@ class AutoSendScheduler {
     // Шаблон по умолчанию
     return 'Добрый день!\n\nНапоминаем об оплате счета №{номер}.\n\nКлиент: {клиент}\nДата выставления: {дата}\nПросрочка: {дни}\n\nПожалуйста, произведите оплату в ближайшее время.\n\nС уважением.';
   }
-
-  /**
-   * Получить правильное склонение слова "день"
-   */
-  getDaysWord(days) {
-    const lastDigit = days % 10;
-    const lastTwoDigits = days % 100;
-
-    if (lastTwoDigits >= 11 && lastTwoDigits <= 19) {
-      return 'дней';
-    }
-
-    if (lastDigit === 1) {
-      return 'день';
-    }
-
-    if (lastDigit >= 2 && lastDigit <= 4) {
-      return 'дня';
-    }
-
-    return 'дней';
-  }
-
   /**
    * Отправить счет через WhatsApp
    */
@@ -309,10 +304,10 @@ class AutoSendScheduler {
       // Счет уже отправлялся - отправляем только напоминание (текст)
       console.log(`[AutoSend] Счет №${invoice.invoiceNumber} уже отправлялся ранее - отправляем напоминание`);
 
-      // Вычисляем количество дней с момента создания счета
-      const createdDate = new Date(invoice.createdAt);
+      // Получаем дату для расчета просрочки через централизованную функцию
+      const sentDate = getInvoiceSentDate(invoice) || new Date(invoice.createdAt);
       const now = new Date();
-      const daysPassed = Math.floor((now - createdDate) / (1000 * 60 * 60 * 24));
+      const daysPassed = daysBetween(sentDate, now);
 
       // Получаем шаблон напоминания
       const messageTemplate = this.getReminderMessageTemplate();
@@ -322,8 +317,8 @@ class AutoSendScheduler {
         .replace(/{номер}/g, invoice.invoiceNumber)
         .replace(/{клиент}/g, invoice.client)
         .replace(/{сумма}/g, invoice.amount?.toLocaleString('ru-RU'))
-        .replace(/{дата}/g, createdDate.toLocaleDateString('ru-RU'))
-        .replace(/{дни}/g, `${daysPassed} ${this.getDaysWord(daysPassed)}`);
+        .replace(/{дата}/g, sentDate.toLocaleDateString('ru-RU'))
+        .replace(/{дни}/g, `${daysPassed} ${getDaysWord(daysPassed)}`);
 
       console.log(`[AutoSend] Отправка напоминания (только текст) на ${phone}...`);
 

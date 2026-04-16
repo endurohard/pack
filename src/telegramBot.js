@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -6,21 +7,34 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// HTTP прокси xray для доступа к Telegram API
+const proxyAgent = new HttpsProxyAgent('http://127.0.0.1:1087');
+
+// Создаём axios-инстанс с прокси для всех запросов к Telegram
+const tgAxios = axios.create({
+    httpsAgent: proxyAgent,
+    httpAgent: proxyAgent,
+    proxy: false // отключаем встроенный прокси axios, используем agent
+});
+
 class InvoiceTelegramBot {
-    constructor(invoiceDb, clientsDb, warehouseDb, whatsappManager, pdfGenerator) {
+    constructor(invoiceDb, clientsDb, warehouseDb, whatsappManager, invoiceService, paymentReminderService, recurringPaymentsDb) {
         this.invoiceDb = invoiceDb;
         this.clientsDb = clientsDb;
         this.warehouseDb = warehouseDb;
         this.whatsappManager = whatsappManager;
-        this.pdfGenerator = pdfGenerator;
+        this.invoiceService = invoiceService;
+        this.paymentReminderService = paymentReminderService;
+        this.recurringPaymentsDb = recurringPaymentsDb;
         this.config = null;
-        this.userSessions = new Map(); // Для хранения состояния диалогов
+        this.userSessions = new Map();
         this.lastUpdateId = 0;
 
         this.loadConfig();
 
         if (this.config && this.config.enabled) {
             this.initBot();
+            this.startPaymentReminderScheduler();
         }
     }
 
@@ -48,7 +62,138 @@ class InvoiceTelegramBot {
         }
     }
 
-    // Запуск long polling
+    // ==========================================
+    // Планировщик напоминаний об оплате
+    // ==========================================
+
+    startPaymentReminderScheduler() {
+        console.log('[TelegramBot] Планировщик напоминаний об оплате запущен');
+        this.schedulePaymentCheck();
+    }
+
+    schedulePaymentCheck() {
+        const now = new Date();
+        const nextCheck = new Date();
+        nextCheck.setHours(7, 0, 0, 0); // 7:00 UTC = 10:00 МСК
+
+        if (now >= nextCheck) {
+            nextCheck.setDate(nextCheck.getDate() + 1);
+        }
+
+        const delay = nextCheck - now;
+        console.log(`[TelegramBot] Следующая проверка оплат: ${nextCheck.toLocaleString('ru-RU')}`);
+
+        setTimeout(() => {
+            this.checkPaymentDeadlines();
+            this.schedulePaymentCheck();
+        }, delay);
+    }
+
+    async checkPaymentDeadlines() {
+        try {
+            console.log('[TelegramBot] Проверка дедлайнов оплаты...');
+
+            const invoices = this.invoiceDb.getAllInvoices();
+            const today = new Date();
+            const currentDay = today.getDate();
+            const currentMonth = today.getMonth();
+            const currentYear = today.getFullYear();
+
+            // Фильтруем неоплаченные абонементские счета
+            const unpaidRecurring = invoices.filter(inv => {
+                if (inv.paid) return false;
+                const paidAmount = inv.paidAmount || 0;
+                if (paidAmount >= inv.amount) return false;
+                if (!inv.isRecurring) return false;
+                return true;
+            });
+
+            if (unpaidRecurring.length === 0) {
+                console.log('[TelegramBot] Нет неоплаченных абонементских счетов');
+                return;
+            }
+
+            const remindersToday = [];
+            const reminders3days = [];
+
+            for (const invoice of unpaidRecurring) {
+                // Определяем дедлайн: из счёта или из клиента
+                let deadlineDay = invoice.paymentDeadlineDay;
+
+                if (!deadlineDay) {
+                    // Ищем клиента по имени
+                    const client = this.clientsDb.getClientByName(invoice.client);
+                    if (client && client.paymentDay) {
+                        deadlineDay = client.paymentDay;
+                    }
+                }
+
+                if (!deadlineDay) continue; // Нет дедлайна — пропускаем
+
+                // Вычисляем дату дедлайна в текущем месяце
+                const deadlineDate = new Date(currentYear, currentMonth, deadlineDay);
+                const diffDays = Math.ceil((deadlineDate - today) / (1000 * 60 * 60 * 24));
+
+                const remainingAmount = invoice.amount - (invoice.paidAmount || 0);
+
+                const info = {
+                    invoiceNumber: invoice.invoiceNumber,
+                    client: invoice.client,
+                    amount: invoice.amount,
+                    remainingAmount: remainingAmount,
+                    deadlineDay: deadlineDay,
+                    diffDays: diffDays
+                };
+
+                if (diffDays === 0) {
+                    remindersToday.push(info);
+                } else if (diffDays === 3) {
+                    reminders3days.push(info);
+                }
+            }
+
+            // Отправляем напоминания
+            const chatId = this.config.allowedUserId;
+
+            if (reminders3days.length > 0) {
+                let msg = '🔔 <b>Напоминание: оплата через 3 дня</b>\n\n';
+                let totalSum = 0;
+                reminders3days.forEach(r => {
+                    msg += `📄 №${r.invoiceNumber} — <b>${r.client}</b>\n`;
+                    msg += `   💰 ${r.remainingAmount.toLocaleString('ru-RU')} ₽ (до ${r.deadlineDay}-го числа)\n\n`;
+                    totalSum += r.remainingAmount;
+                });
+                msg += `💳 <b>Итого к оплате: ${totalSum.toLocaleString('ru-RU')} ₽</b>`;
+                await this.sendMessage(chatId, msg);
+                console.log(`[TelegramBot] Отправлено напоминание за 3 дня: ${reminders3days.length} счетов`);
+            }
+
+            if (remindersToday.length > 0) {
+                let msg = '🚨 <b>СЕГОДНЯ дедлайн оплаты!</b>\n\n';
+                let totalSum = 0;
+                remindersToday.forEach(r => {
+                    msg += `📄 №${r.invoiceNumber} — <b>${r.client}</b>\n`;
+                    msg += `   💰 ${r.remainingAmount.toLocaleString('ru-RU')} ₽\n\n`;
+                    totalSum += r.remainingAmount;
+                });
+                msg += `💳 <b>Итого к оплате: ${totalSum.toLocaleString('ru-RU')} ₽</b>`;
+                await this.sendMessage(chatId, msg);
+                console.log(`[TelegramBot] Отправлено напоминание на сегодня: ${remindersToday.length} счетов`);
+            }
+
+            if (reminders3days.length === 0 && remindersToday.length === 0) {
+                console.log('[TelegramBot] Нет счетов с дедлайном сегодня или через 3 дня');
+            }
+
+        } catch (error) {
+            console.error('[TelegramBot] Ошибка проверки дедлайнов:', error);
+        }
+    }
+
+    // ==========================================
+    // Telegram API методы (через прокси xray)
+    // ==========================================
+
     async startPolling() {
         while (this.config && this.config.enabled) {
             try {
@@ -59,7 +204,6 @@ class InvoiceTelegramBot {
                     this.handleUpdate(update);
                 }
 
-                // Небольшая задержка между запросами
                 await new Promise(resolve => setTimeout(resolve, 1000));
             } catch (error) {
                 console.error('[TelegramBot] Ошибка polling:', error.message);
@@ -68,17 +212,13 @@ class InvoiceTelegramBot {
         }
     }
 
-    // Получение обновлений
     async getUpdates() {
         try {
-            const response = await axios.get(`${this.apiUrl}/getUpdates`, {
+            const response = await tgAxios.get(`${this.apiUrl}/getUpdates`, {
                 params: {
                     offset: this.lastUpdateId,
                     timeout: 30
-                },
-                proxy: false, // Отключаем прокси для Telegram API
-                httpAgent: null,
-                httpsAgent: null
+                }
             });
 
             if (response.data.ok) {
@@ -91,81 +231,63 @@ class InvoiceTelegramBot {
         }
     }
 
-    // Отправка сообщения
     async sendMessage(chatId, text, options = {}) {
         try {
-            await axios.post(`${this.apiUrl}/sendMessage`, {
+            await tgAxios.post(`${this.apiUrl}/sendMessage`, {
                 chat_id: chatId,
                 text: text,
                 parse_mode: options.parse_mode || 'HTML',
                 reply_markup: options.reply_markup
-            }, {
-                proxy: false,
-                httpAgent: null,
-                httpsAgent: null
             });
         } catch (error) {
             console.error('[TelegramBot] Ошибка отправки сообщения:', error.message);
         }
     }
 
-    // Редактирование сообщения
     async editMessageText(chatId, messageId, text, options = {}) {
         try {
-            await axios.post(`${this.apiUrl}/editMessageText`, {
+            await tgAxios.post(`${this.apiUrl}/editMessageText`, {
                 chat_id: chatId,
                 message_id: messageId,
                 text: text,
                 parse_mode: options.parse_mode || 'HTML',
                 reply_markup: options.reply_markup
-            }, {
-                proxy: false,
-                httpAgent: null,
-                httpsAgent: null
             });
         } catch (error) {
             console.error('[TelegramBot] Ошибка редактирования сообщения:', error.message);
         }
     }
 
-    // Удаление сообщения
     async deleteMessage(chatId, messageId) {
         try {
-            await axios.post(`${this.apiUrl}/deleteMessage`, {
+            await tgAxios.post(`${this.apiUrl}/deleteMessage`, {
                 chat_id: chatId,
                 message_id: messageId
-            }, {
-                proxy: false,
-                httpAgent: null,
-                httpsAgent: null
             });
         } catch (error) {
             console.error('[TelegramBot] Ошибка удаления сообщения:', error.message);
         }
     }
 
-    // Ответ на callback query
     async answerCallbackQuery(queryId, text = '') {
         try {
-            await axios.post(`${this.apiUrl}/answerCallbackQuery`, {
+            await tgAxios.post(`${this.apiUrl}/answerCallbackQuery`, {
                 callback_query_id: queryId,
                 text: text
-            }, {
-                proxy: false,
-                httpAgent: null,
-                httpsAgent: null
             });
         } catch (error) {
             console.error('[TelegramBot] Ошибка ответа на callback:', error.message);
         }
     }
 
-    // Проверка авторизации
+    // ==========================================
+    // Обработка обновлений и команд
+    // ==========================================
+
     isAuthorized(userId) {
         return userId === this.config.allowedUserId;
     }
 
-    // Обработка обновлений
     handleUpdate(update) {
         if (update.message) {
             const chatId = update.message.chat.id;
@@ -196,17 +318,19 @@ class InvoiceTelegramBot {
         }
     }
 
-    // Обработка команд
     handleCommand(message) {
         const chatId = message.chat.id;
         const command = message.text.split(' ')[0];
 
         if (command === '/start') {
             this.showMainMenu(chatId);
+        } else if (command === '/payments') {
+            this.checkPaymentDeadlines();
+        } else if (command === '/bills') {
+            this.showRecurringPaymentsStatus(chatId);
         }
     }
 
-    // Главное меню
     showMainMenu(chatId) {
         const keyboard = {
             inline_keyboard: [
@@ -214,7 +338,9 @@ class InvoiceTelegramBot {
                 [{ text: '➕ Создать счет', callback_data: 'create_invoice' }],
                 [{ text: '📋 Список счетов', callback_data: 'list_invoices' }],
                 [{ text: '💰 Неоплаченные счета', callback_data: 'unpaid_invoices' }],
-                [{ text: '📊 Статистика', callback_data: 'statistics' }]
+                [{ text: '📊 Статистика', callback_data: 'statistics' }],
+                [{ text: '🔔 Проверить дедлайны оплат', callback_data: 'check_deadlines' }],
+                [{ text: '📅 Регулярные платежи', callback_data: 'recurring_payments' }]
             ]
         };
 
@@ -225,7 +351,6 @@ class InvoiceTelegramBot {
         );
     }
 
-    // Обработка callback-запросов
     async handleCallback(chatId, userId, query) {
         const data = query.data;
 
@@ -241,6 +366,12 @@ class InvoiceTelegramBot {
                 this.showUnpaidInvoices(chatId, query.message.message_id);
             } else if (data === 'statistics') {
                 this.showStatistics(chatId, query.message.message_id);
+            } else if (data === 'check_deadlines') {
+                await this.answerCallbackQuery(query.id, 'Проверяю дедлайны...');
+                await this.checkPaymentDeadlines();
+                return;
+            } else if (data === 'new_client') {
+                this.startNewClientCreation(chatId, userId);
             } else if (data.startsWith('select_client_')) {
                 const clientId = data.replace('select_client_', '');
                 this.selectClient(chatId, userId, clientId);
@@ -260,6 +391,21 @@ class InvoiceTelegramBot {
             } else if (data.startsWith('send_')) {
                 const invoiceId = data.replace('send_', '');
                 await this.sendInvoiceToWhatsApp(chatId, invoiceId);
+            } else if (data === 'recurring_payments') {
+                this.showRecurringPaymentsStatus(chatId, query.message.message_id);
+            } else if (data.startsWith('rp_pay_')) {
+                const paymentId = data.replace('rp_pay_', '');
+                await this.markRecurringPaymentPaid(chatId, paymentId, query.message.message_id);
+            } else if (data.startsWith('rp_unpay_')) {
+                const paymentId = data.replace('rp_unpay_', '');
+                await this.markRecurringPaymentUnpaid(chatId, paymentId, query.message.message_id);
+            } else if (data === 'rp_add') {
+                this.startRecurringPaymentCreation(chatId, userId);
+            } else if (data === 'rp_cancel_add') {
+                this.userSessions.delete(userId);
+                this.showRecurringPaymentsStatus(chatId, query.message.message_id);
+            } else if (data === 'rp_back') {
+                this.showRecurringPaymentsStatus(chatId, query.message.message_id);
             } else if (data === 'back_to_list') {
                 this.showInvoicesList(chatId, query.message.message_id);
             }
@@ -271,11 +417,106 @@ class InvoiceTelegramBot {
         }
     }
 
-    // Обработка текстовых сообщений
     handleTextMessage(chatId, userId, message) {
         const session = this.userSessions.get(userId);
 
         if (!session) return;
+
+        // Создание регулярного платежа
+        if (session.state === 'rp_waiting_name') {
+            session.rpData = { name: message.text.trim() };
+            session.state = 'rp_waiting_description';
+            this.sendMessage(chatId, `📝 Организация: <b>${session.rpData.name}</b>
+
+Введите описание (что оплачиваем):
+<i>Например: пополнить баланс +79096194444</i>
+
+Или отправьте <b>-</b> чтобы пропустить`);
+            return;
+        }
+
+        if (session.state === 'rp_waiting_description') {
+            const desc = message.text.trim();
+            session.rpData.description = desc === '-' ? '' : desc;
+            session.state = 'rp_waiting_amount';
+            this.sendMessage(chatId, `💰 Введите сумму платежа (в рублях):
+<i>Например: 450</i>`);
+            return;
+        }
+
+        if (session.state === 'rp_waiting_amount') {
+            const amount = parseFloat(message.text.replace(/[^\d.,]/g, '').replace(',', '.'));
+            if (isNaN(amount) || amount <= 0) {
+                this.sendMessage(chatId, '❌ Введите корректную сумму (число больше 0)');
+                return;
+            }
+            session.rpData.amount = amount;
+            session.state = 'rp_waiting_day';
+            this.sendMessage(chatId, `📅 Введите день месяца для оплаты (1-31):
+<i>Например: 13</i>`);
+            return;
+        }
+
+        if (session.state === 'rp_waiting_day') {
+            const day = parseInt(message.text.trim());
+            if (isNaN(day) || day < 1 || day > 31) {
+                this.sendMessage(chatId, '❌ Введите число от 1 до 31');
+                return;
+            }
+            session.rpData.dayOfMonth = day;
+
+            // Сохраняем платеж
+            try {
+                const payment = this.recurringPaymentsDb.addPayment(session.rpData);
+                this.userSessions.delete(userId);
+
+                const desc = payment.description ? '\n📝 ' + payment.description : '';
+                this.sendMessage(chatId, `✅ <b>Платеж добавлен!</b>
+
+🏢 ${payment.name}${desc}
+💰 ${payment.amount.toLocaleString('ru-RU')} ₽
+📅 До ${payment.dayOfMonth}-го числа каждого месяца`, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '➕ Добавить ещё', callback_data: 'rp_add' }],
+                            [{ text: '📅 Все платежи', callback_data: 'recurring_payments' }],
+                            [{ text: '◀ Главное меню', callback_data: 'main_menu' }]
+                        ]
+                    }
+                });
+            } catch (e) {
+                this.sendMessage(chatId, '❌ Ошибка: ' + e.message);
+                this.userSessions.delete(userId);
+            }
+            return;
+        }
+
+        if (session.state === 'waiting_client_name') {
+            session.newClient = { name: message.text.trim() };
+            session.state = 'waiting_client_phone';
+            this.sendMessage(chatId, `👤 Клиент: <b>${session.newClient.name}</b>
+
+📱 Введите номер телефона (WhatsApp):`);
+            return;
+        }
+
+        if (session.state === 'waiting_client_phone') {
+            const phone = message.text.trim();
+            const newClient = this.clientsDb.addClient({
+                name: session.newClient.name,
+                phone: phone
+            });
+            session.client = newClient;
+            session.state = 'adding_items';
+            delete session.newClient;
+
+            this.sendMessage(chatId, `✅ Клиент <b>${newClient.name}</b> создан!
+📱 Телефон: ${newClient.phone}
+
+Теперь добавьте товары/услуги:`);
+            this.showProductSelection(chatId, userId);
+            return;
+        }
 
         if (session.state === 'waiting_quantity') {
             const quantity = parseFloat(message.text);
@@ -292,7 +533,10 @@ class InvoiceTelegramBot {
         }
     }
 
-    // Начало создания счета
+    // ==========================================
+    // Создание счёта
+    // ==========================================
+
     startInvoiceCreation(chatId, userId) {
         this.userSessions.set(userId, {
             state: 'selecting_client',
@@ -303,20 +547,35 @@ class InvoiceTelegramBot {
         this.showClientSelection(chatId);
     }
 
-    // Показать список клиентов
+    startNewClientCreation(chatId, userId) {
+        const session = this.userSessions.get(userId);
+        if (!session) {
+            this.userSessions.set(userId, {
+                state: 'waiting_client_name',
+                client: null,
+                items: []
+            });
+        } else {
+            session.state = 'waiting_client_name';
+        }
+
+        this.sendMessage(chatId, '👤 Введите название компании или ФИО клиента:');
+    }
+
     showClientSelection(chatId) {
         const clients = this.clientsDb.getAllClients();
 
-        if (clients.length === 0) {
-            this.sendMessage(chatId, '❌ Клиенты не найдены. Добавьте клиента через веб-интерфейс.');
-            return;
-        }
+        // Даже если клиентов нет, показываем кнопку создания нового
 
         const keyboard = {
             inline_keyboard: []
         };
 
-        // Показываем первых 20 клиентов
+        // Кнопка создания нового клиента — всегда сверху
+        keyboard.inline_keyboard.push([
+            { text: '➕ Создать нового клиента', callback_data: 'new_client' }
+        ]);
+
         clients.slice(0, 20).forEach(client => {
             keyboard.inline_keyboard.push([{
                 text: `${client.name} (${client.phone})`,
@@ -334,7 +593,6 @@ class InvoiceTelegramBot {
         );
     }
 
-    // Выбор клиента
     selectClient(chatId, userId, clientId) {
         const session = this.userSessions.get(userId);
         if (!session) return;
@@ -352,7 +610,6 @@ class InvoiceTelegramBot {
         this.showProductSelection(chatId, userId);
     }
 
-    // Показать список товаров
     showProductSelection(chatId, userId) {
         const products = this.warehouseDb.getAllProducts();
         const session = this.userSessions.get(userId);
@@ -366,7 +623,6 @@ class InvoiceTelegramBot {
             inline_keyboard: []
         };
 
-        // Показываем первые 15 товаров
         products.slice(0, 15).forEach(product => {
             const price = product.sellingPrice || 0;
             keyboard.inline_keyboard.push([{
@@ -398,7 +654,6 @@ class InvoiceTelegramBot {
         this.sendMessage(chatId, message, { reply_markup: keyboard });
     }
 
-    // Добавление товара в счет
     addProductToInvoice(chatId, userId, productId) {
         const session = this.userSessions.get(userId);
         if (!session) return;
@@ -413,7 +668,7 @@ class InvoiceTelegramBot {
             name: product.name,
             unit: product.unit || 'шт',
             price: product.sellingPrice || 0,
-            quantity: 1 // По умолчанию
+            quantity: 1
         });
 
         session.state = 'waiting_quantity';
@@ -424,7 +679,6 @@ class InvoiceTelegramBot {
         );
     }
 
-    // Завершение создания счета
     async finishInvoiceCreation(chatId, userId) {
         const session = this.userSessions.get(userId);
         if (!session || !session.client || session.items.length === 0) {
@@ -476,14 +730,16 @@ class InvoiceTelegramBot {
         }
     }
 
-    // Отмена создания счета
     cancelInvoiceCreation(chatId, userId) {
         this.userSessions.delete(userId);
         this.sendMessage(chatId, '❌ Создание счета отменено');
         this.showMainMenu(chatId);
     }
 
-    // Показать список счетов
+    // ==========================================
+    // Просмотр счетов
+    // ==========================================
+
     showInvoicesList(chatId, messageId = null) {
         const invoices = this.invoiceDb.getAllInvoices();
 
@@ -501,7 +757,6 @@ class InvoiceTelegramBot {
             inline_keyboard: []
         };
 
-        // Показываем последние 10 счетов
         invoices.slice(-10).reverse().forEach(invoice => {
             const status = invoice.paid ? '✅' : '❌';
             const paidAmount = invoice.paidAmount || 0;
@@ -527,7 +782,6 @@ class InvoiceTelegramBot {
         }
     }
 
-    // Показать неоплаченные счета
     showUnpaidInvoices(chatId, messageId = null) {
         const invoices = this.invoiceDb.getAllInvoices();
         const unpaid = invoices.filter(inv => {
@@ -569,7 +823,6 @@ class InvoiceTelegramBot {
         }
     }
 
-    // Показать детали счета
     showInvoiceDetails(chatId, invoiceId, messageId = null) {
         const invoice = this.invoiceDb.getInvoiceById(invoiceId);
 
@@ -592,8 +845,13 @@ class InvoiceTelegramBot {
             message += `💸 Осталось: ${(invoice.amount - paidAmount).toLocaleString('ru-RU')} ₽\n`;
         }
 
-        message += `📅 Дата: ${new Date(invoice.date).toLocaleDateString('ru-RU')}\n`;
+        const invoiceDate = invoice.invoiceDate || invoice.createdAt;
+        message += `📅 Дата: ${new Date(invoiceDate).toLocaleDateString('ru-RU')}\n`;
         message += `📊 Статус: ${isFullyPaid ? '✅ Оплачен' : isPartiallyPaid ? '⚠️ Частично оплачен' : '❌ Не оплачен'}\n`;
+
+        if (invoice.paymentDeadlineDay) {
+            message += `⏰ Дедлайн оплаты: до ${invoice.paymentDeadlineDay}-го числа\n`;
+        }
 
         if (invoice.items && invoice.items.length > 0) {
             message += `\n<b>Позиции:</b>\n`;
@@ -629,7 +887,6 @@ class InvoiceTelegramBot {
         }
     }
 
-    // Отметить счет как оплаченный
     async markInvoiceAsPaid(chatId, invoiceId) {
         try {
             const invoice = this.invoiceDb.getInvoiceById(invoiceId);
@@ -648,7 +905,6 @@ class InvoiceTelegramBot {
                 `✅ Счет №${invoice.invoiceNumber} отмечен как оплаченный!`
             );
 
-            // Обновляем отображение деталей счета
             setTimeout(() => {
                 this.showInvoiceDetails(chatId, invoiceId);
             }, 1000);
@@ -659,7 +915,6 @@ class InvoiceTelegramBot {
         }
     }
 
-    // Отправить счет в WhatsApp
     async sendInvoiceToWhatsApp(chatId, invoiceId) {
         try {
             const invoice = this.invoiceDb.getInvoiceById(invoiceId);
@@ -671,10 +926,8 @@ class InvoiceTelegramBot {
 
             this.sendMessage(chatId, '⏳ Генерирую PDF и отправляю в WhatsApp...');
 
-            // Генерируем PDF
-            const pdfPath = await this.pdfGenerator.generateInvoicePDF(invoice);
+            const pdfPath = await this.invoiceService.generateInvoicePDF(invoice);
 
-            // Отправляем через WhatsApp
             const settingsPath = path.join(__dirname, '..', 'data', 'whatsapp-settings.json');
             const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
 
@@ -682,7 +935,7 @@ class InvoiceTelegramBot {
                 .replace(/{номер}/g, invoice.invoiceNumber)
                 .replace(/{клиент}/g, invoice.client)
                 .replace(/{сумма}/g, invoice.amount.toLocaleString('ru-RU'))
-                .replace(/{дата}/g, new Date(invoice.date).toLocaleDateString('ru-RU'));
+                .replace(/{дата}/g, new Date(invoice.invoiceDate || invoice.createdAt).toLocaleDateString('ru-RU'));
 
             const result = await this.whatsappManager.sendMessageWithFile(
                 invoice.clientPhone,
@@ -691,7 +944,6 @@ class InvoiceTelegramBot {
             );
 
             if (result.success) {
-                // Обновляем дату отправки
                 this.invoiceDb.updateInvoice(invoiceId, {
                     lastWhatsAppSent: new Date().toISOString()
                 });
@@ -712,7 +964,6 @@ class InvoiceTelegramBot {
         }
     }
 
-    // Показать статистику
     showStatistics(chatId, messageId = null) {
         const invoices = this.invoiceDb.getAllInvoices();
 
@@ -763,6 +1014,112 @@ class InvoiceTelegramBot {
             this.sendMessage(chatId, message, { reply_markup: keyboard });
         }
     }
+    // ==========================================
+    // Регулярные платежи
+    // ==========================================
+
+    startRecurringPaymentCreation(chatId, userId) {
+        this.userSessions.set(userId, {
+            state: 'rp_waiting_name',
+            rpData: {}
+        });
+
+        this.sendMessage(chatId, `➕ <b>Добавление регулярного платежа</b>
+
+Введите название организации:
+<i>Например: МТС, Ростелеком, Аренда офиса</i>`, {
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '❌ Отмена', callback_data: 'rp_cancel_add' }]
+                ]
+            }
+        });
+    }
+
+    async showRecurringPaymentsStatus(chatId, messageId = null) {
+        if (!this.recurringPaymentsDb) {
+            this.sendMessage(chatId, '❌ Сервис регулярных платежей не инициализирован');
+            return;
+        }
+
+        const status = this.recurringPaymentsDb.getMonthStatus();
+        const monthNames = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+        const now = new Date();
+        const monthLabel = monthNames[now.getMonth()] + ' ' + now.getFullYear();
+        const today = now.getDate();
+
+        if (status.length === 0) {
+            const text = '📅 <b>Регулярные платежи</b>\n\nНет добавленных платежей. Добавьте через веб-интерфейс.';
+            const kb = { inline_keyboard: [[{ text: '◀ Главное меню', callback_data: 'main_menu' }]] };
+            if (messageId) {
+                this.editMessageText(chatId, messageId, text, { reply_markup: kb });
+            } else {
+                this.sendMessage(chatId, text, { reply_markup: kb });
+            }
+            return;
+        }
+
+        const active = status.filter(p => p.active);
+        const paid = active.filter(p => p.paid);
+        const unpaid = active.filter(p => !p.paid);
+        const totalDue = unpaid.reduce((s, p) => s + p.amount, 0);
+
+        let text = '📅 <b>Регулярные платежи — ' + monthLabel + '</b>\n';
+        text += '━━━━━━━━━━━━━━━━━━━━━\n';
+        text += '✅ Оплачено: ' + paid.length + ' / ' + active.length + '\n';
+        if (unpaid.length > 0) {
+            text += '💰 К оплате: ' + totalDue.toLocaleString('ru-RU') + ' ₽\n';
+        }
+        text += '━━━━━━━━━━━━━━━━━━━━━\n\n';
+
+        const buttons = [];
+
+        for (const p of active) {
+            const isOverdue = !p.paid && p.dayOfMonth < today;
+            if (p.paid) {
+                text += '✅ <s>' + p.name + '</s> — ' + p.amount.toLocaleString('ru-RU') + ' ₽\n';
+                if (p.description) text += '   <i>' + p.description + '</i>\n';
+                buttons.push([{ text: '↩ Отменить: ' + p.name, callback_data: 'rp_unpay_' + p.id }]);
+            } else {
+                const icon = isOverdue ? '🔴' : '🔵';
+                text += icon + ' <b>' + p.name + '</b> — ' + p.amount.toLocaleString('ru-RU') + ' ₽ (до ' + p.dayOfMonth + '-го)\n';
+                if (p.description) text += '   <i>' + p.description + '</i>\n';
+                if (isOverdue) text += '   ⚠️ <b>Просрочено!</b>\n';
+                buttons.push([{ text: '✅ Оплатил: ' + p.name, callback_data: 'rp_pay_' + p.id }]);
+            }
+            text += '\n';
+        }
+
+        buttons.push([{ text: '➕ Добавить платеж', callback_data: 'rp_add' }]);
+        buttons.push([{ text: '◀ Главное меню', callback_data: 'main_menu' }]);
+        const kb = { inline_keyboard: buttons };
+
+        if (messageId) {
+            this.editMessageText(chatId, messageId, text, { reply_markup: kb });
+        } else {
+            this.sendMessage(chatId, text, { reply_markup: kb });
+        }
+    }
+
+    async markRecurringPaymentPaid(chatId, paymentId, messageId) {
+        try {
+            this.recurringPaymentsDb.markAsPaid(paymentId, 'telegram');
+            await this.answerCallbackQuery(null, '✅ Отмечено как оплаченное');
+        } catch (e) {
+            console.error('[TelegramBot] Ошибка отметки оплаты:', e.message);
+        }
+        this.showRecurringPaymentsStatus(chatId, messageId);
+    }
+
+    async markRecurringPaymentUnpaid(chatId, paymentId, messageId) {
+        try {
+            this.recurringPaymentsDb.markAsUnpaid(paymentId);
+        } catch (e) {
+            console.error('[TelegramBot] Ошибка снятия оплаты:', e.message);
+        }
+        this.showRecurringPaymentsStatus(chatId, messageId);
+    }
+
 }
 
 export default InvoiceTelegramBot;

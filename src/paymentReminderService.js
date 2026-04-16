@@ -1,5 +1,6 @@
-import InvoiceDatabase from './invoiceDatabase.js';
+// InvoiceDatabase передаётся через конструктор
 import WhatsAppManager from './whatsappManager.js';
+import { getInvoiceSentDate, daysBetween, getDaysWord, isMoscowWorkingHours, getMoscowHour } from './dateUtils.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -12,14 +13,14 @@ const __dirname = path.dirname(__filename);
  * Проверяет раз в день неоплаченные счета и отправляет напоминания
  */
 class PaymentReminderService {
-  constructor(whatsappManager) {
-    this.db = new InvoiceDatabase();
+  constructor(whatsappManager, db) {
+    this.db = db;
     this.whatsappManager = whatsappManager;
     this.isProcessing = false;
     this.checkInterval = 24 * 60 * 60 * 1000; // 24 часа в миллисекундах
     this.sendDelay = 10 * 60 * 1000; // 10 минут задержка между отправками
     this.intervalId = null;
-    this.checkHour = 10; // Время проверки - 10:00 утра
+    this.checkHour = 7; // 7:00 UTC = 10:00 МСК // Время проверки - 10:00 утра
 
     // Очередь отправки напоминаний
     this.reminderQueue = [];
@@ -32,7 +33,7 @@ class PaymentReminderService {
    */
   start() {
     console.log('[PaymentReminder] Сервис напоминаний об оплате запущен');
-    console.log('[PaymentReminder] Время ежедневной проверки: 10:00');
+    console.log('[PaymentReminder] Время ежедневной проверки: 10:00 МСК (07:00 UTC)');
 
     // Планируем первую проверку на ближайшее 10:00
     this.scheduleNextCheck();
@@ -83,6 +84,12 @@ class PaymentReminderService {
 
     try {
       this.isProcessing = true;
+      // Проверяем рабочие часы по МСК (10:00-20:00)
+      if (!isMoscowWorkingHours()) {
+        console.log('[PaymentReminder] Сейчас нерабочее время по МСК (допустимо 10:00-20:00), пропускаем отправку');
+        return;
+      }
+
       console.log('[PaymentReminder] Проверка неоплаченных счетов...');
 
       const unpaidInvoices = this.getUnpaidInvoicesWithReminders();
@@ -160,13 +167,19 @@ class PaymentReminderService {
         return false;
       }
 
-      // Счет должен быть отправлен через WhatsApp или вручную клиенту
-      if (!invoice.lastWhatsAppSent && !invoice.sentToClientAt) {
+      // Счет должен быть отправлен через WhatsApp
+      if (!invoice.lastWhatsAppSent) {
         return false;
       }
 
       // Есть номер телефона клиента
       if (!invoice.clientPhone) return false;
+
+      // Проверяем, включены ли напоминания для этого счета
+      // Если reminderEnabled явно установлен в false, пропускаем счет
+      if (invoice.reminderEnabled === false) {
+        return false;
+      }
 
       // Напоминания отправляем по умолчанию для всех отправленных неоплаченных счетов
       // Используем дату отправки через WhatsApp, если есть, иначе дату отправки клиенту
@@ -237,13 +250,33 @@ class PaymentReminderService {
    * Отправить напоминание через WhatsApp
    */
   async sendReminder(invoice) {
+    // Дополнительная проверка: перечитываем счет из БД перед отправкой
+    // (на случай если он был оплачен уже после попадания в очередь)
+    const freshInvoice = this.db.getInvoiceById(invoice.id);
+    if (!freshInvoice) {
+      throw new Error('Счет не найден в базе данных');
+    }
+
+    // Проверяем, не оплачен ли счет
+    if (freshInvoice.paid) {
+      console.log(`[PaymentReminder] ⚠️ Счет №${invoice.invoiceNumber} уже оплачен, пропускаем напоминание`);
+      throw new Error('Счет уже оплачен');
+    }
+
+    // Проверяем полную оплату через paidAmount
+    const paidAmount = freshInvoice.paidAmount || 0;
+    if (paidAmount >= freshInvoice.amount) {
+      console.log(`[PaymentReminder] ⚠️ Счет №${invoice.invoiceNumber} полностью оплачен (${paidAmount} >= ${freshInvoice.amount}), пропускаем напоминание`);
+      throw new Error('Счет полностью оплачен');
+    }
+
     // Проверяем наличие номера телефона
-    if (!invoice.clientPhone) {
+    if (!freshInvoice.clientPhone) {
       throw new Error('У клиента не указан номер телефона');
     }
 
     // Нормализуем номер телефона
-    let phone = invoice.clientPhone.replace(/\D/g, '');
+    let phone = freshInvoice.clientPhone.replace(/\D/g, '');
     if (phone.startsWith('8')) {
       phone = '7' + phone.substring(1);
     }
@@ -259,33 +292,25 @@ class PaymentReminderService {
       phone = settings.testPhone;
     }
 
-    // Вычисляем количество дней с момента ОТПРАВКИ счета (не создания!)
-    // Используем дату отправки через WhatsApp, если есть
-    // Иначе дату отправки клиенту вручную (sentToClientAt)
-    // Иначе дату создания счета
-    const sentDate = invoice.lastWhatsAppSent
-      ? new Date(invoice.lastWhatsAppSent)
-      : invoice.sentToClientAt
-        ? new Date(invoice.sentToClientAt)
-        : new Date(invoice.createdAt);
+    // Получаем дату для расчета просрочки через централизованную функцию
+    const sentDate = getInvoiceSentDate(freshInvoice) || new Date(freshInvoice.createdAt);
     const now = new Date();
-    const daysPassed = Math.floor((now - sentDate) / (1000 * 60 * 60 * 24));
+    const daysPassed = daysBetween(sentDate, now);
 
     // Вычисляем остаток к оплате с учетом частичной оплаты
-    const paidAmount = invoice.paidAmount || 0;
-    const remainingAmount = invoice.amount - paidAmount;
-    const totalAmount = invoice.amount;
+    const remainingAmount = freshInvoice.amount - paidAmount;
+    const totalAmount = freshInvoice.amount;
 
     // Получаем шаблон сообщения
     const messageTemplate = this.getReminderMessageTemplate();
 
     // Формируем сообщение-напоминание, подставляя значения
     let message = messageTemplate
-      .replace(/{номер}/g, invoice.invoiceNumber)
-      .replace(/{клиент}/g, invoice.client)
+      .replace(/{номер}/g, freshInvoice.invoiceNumber)
+      .replace(/{клиент}/g, freshInvoice.client)
       .replace(/{сумма}/g, totalAmount?.toLocaleString('ru-RU'))
       .replace(/{дата}/g, sentDate.toLocaleDateString('ru-RU'))
-      .replace(/{дни}/g, `${daysPassed} ${this.getDaysWord(daysPassed)}`);
+      .replace(/{дни}/g, `${daysPassed} ${getDaysWord(daysPassed)}`);
 
     // Если есть частичная оплата, добавляем информацию об остатке
     if (paidAmount > 0 && remainingAmount > 0) {
@@ -295,10 +320,10 @@ class PaymentReminderService {
 
     // Добавляем информацию о тестовом режиме
     if (settings.testMode && settings.testPhone && originalPhone !== settings.testPhone) {
-      message = `🧪 ТЕСТОВОЕ НАПОМИНАНИЕ\nДля клиента: ${invoice.client} (${originalPhone})\n\n` + message;
+      message = `🧪 ТЕСТОВОЕ НАПОМИНАНИЕ\nДля клиента: ${freshInvoice.client} (${originalPhone})\n\n` + message;
     }
 
-    console.log(`[PaymentReminder] Отправка напоминания для счета №${invoice.invoiceNumber}`);
+    console.log(`[PaymentReminder] Отправка напоминания для счета №${freshInvoice.invoiceNumber}`);
     console.log(`[PaymentReminder] Телефон: ${phone}`);
     console.log(`[PaymentReminder] Сообщение (только текст, без файла):\n${message}`);
 
@@ -311,29 +336,6 @@ class PaymentReminderService {
 
     return result;
   }
-
-  /**
-   * Получить правильное склонение слова "день"
-   */
-  getDaysWord(days) {
-    const lastDigit = days % 10;
-    const lastTwoDigits = days % 100;
-
-    if (lastTwoDigits >= 11 && lastTwoDigits <= 19) {
-      return 'дней';
-    }
-
-    if (lastDigit === 1) {
-      return 'день';
-    }
-
-    if (lastDigit >= 2 && lastDigit <= 4) {
-      return 'дня';
-    }
-
-    return 'дней';
-  }
-
   /**
    * Задержка
    */

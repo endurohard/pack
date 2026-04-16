@@ -1,0 +1,26 @@
+{
+  "payments": [
+    {
+      "id": "1774967801963",
+      "name": "МТС",
+      "description": "пополнить баланс номера +79096194444",
+      "amount": 450,
+      "dayOfMonth": 13,
+      "active": true,
+      "createdAt": "2026-03-31T14:36:41.963Z"
+    }
+  ],
+  "history": [
+    {
+      "paymentId": "1774967801963",
+      "month": "2026-04",
+      "paidAt": "2026-04-10T09:05:59.585Z",
+      "paidVia": "telegram"
+    }
+  ],
+  "settings": {
+    "checkHour": 7,
+    "checkMinute": 0,
+    "remindDaysBefore": 3
+  }
+}
