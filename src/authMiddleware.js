@@ -1,11 +1,15 @@
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import authDatabase from './authDatabase.js';
+import { rateLimitMiddleware, resetRateLimit } from './rateLimiter.js';
 
 dotenv.config();
 
 // Хранилище токенов в памяти
 const tokens = new Map();
+
+// Экспортируем rate limiter для использования в роутах
+export { rateLimitMiddleware };
 
 /**
  * Генерация случайного токена
@@ -138,19 +142,27 @@ export function authMiddleware(req, res, next) {
 }
 
 /**
- * Обработчик логина
+ * Обработчик логина с rate limiting
  */
 export function loginHandler(req, res) {
   const { username, password } = req.body;
 
   if (!validateCredentials(username, password)) {
+    // НЕ сбрасываем rate limit при неудачной попытке
     return res.status(401).json({
       success: false,
       error: 'Неверный логин или пароль'
     });
   }
 
+  // ✅ Успешный вход - сбрасываем счётчик попыток
+  const ip = req.ip || req.connection.remoteAddress;
+  resetRateLimit(ip);
+
   const token = createToken(username);
+
+  // Логируем успешный вход
+  console.log(`[Auth] ✅ Успешный вход: ${username} с IP ${ip}`);
 
   res.json({
     success: true,

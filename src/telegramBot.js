@@ -28,6 +28,7 @@ class InvoiceTelegramBot {
         this.recurringPaymentsDb = recurringPaymentsDb;
         this.config = null;
         this.userSessions = new Map();
+        this.listFilters = new Map(); // chatId -> { status, monthIdx, page }
         this.lastUpdateId = 0;
 
         this.loadConfig();
@@ -328,6 +329,9 @@ class InvoiceTelegramBot {
             this.checkPaymentDeadlines();
         } else if (command === '/bills') {
             this.showRecurringPaymentsStatus(chatId);
+        } else if (command === '/cancel') {
+            this.userSessions.delete(message.from.id);
+            this.sendMessage(chatId, '❌ Действие отменено.');
         }
     }
 
@@ -336,11 +340,11 @@ class InvoiceTelegramBot {
             inline_keyboard: [
                 [{ text: '🌐 Открыть веб-интерфейс', url: 'http://176.98.155.17:10801' }],
                 [{ text: '➕ Создать счет', callback_data: 'create_invoice' }],
-                [{ text: '📋 Список счетов', callback_data: 'list_invoices' }],
-                [{ text: '💰 Неоплаченные счета', callback_data: 'unpaid_invoices' }],
+                [{ text: '📋 Все счета', callback_data: 'list_invoices' }, { text: '❌ Неоплаченные', callback_data: 'inv_fs_unpaid' }],
                 [{ text: '📊 Статистика', callback_data: 'statistics' }],
                 [{ text: '🔔 Проверить дедлайны оплат', callback_data: 'check_deadlines' }],
-                [{ text: '📅 Регулярные платежи', callback_data: 'recurring_payments' }]
+                [{ text: '📅 Регулярные платежи', callback_data: 'recurring_payments' }],
+                [{ text: '👥 Клиенты', callback_data: 'clients_menu' }]
             ]
         };
 
@@ -363,7 +367,8 @@ class InvoiceTelegramBot {
             } else if (data === 'list_invoices') {
                 this.showInvoicesList(chatId, query.message.message_id);
             } else if (data === 'unpaid_invoices') {
-                this.showUnpaidInvoices(chatId, query.message.message_id);
+                const f = { status: 'unpaid', monthKey: 'all', page: 0 };
+                this.showInvoicesList(chatId, query.message.message_id, f);
             } else if (data === 'statistics') {
                 this.showStatistics(chatId, query.message.message_id);
             } else if (data === 'check_deadlines') {
@@ -408,6 +413,50 @@ class InvoiceTelegramBot {
                 this.showRecurringPaymentsStatus(chatId, query.message.message_id);
             } else if (data === 'back_to_list') {
                 this.showInvoicesList(chatId, query.message.message_id);
+            } else if (data.startsWith('inv_fs_')) {
+                const status = data.replace('inv_fs_', '');
+                const f = this.listFilters.get(chatId) || { status: 'all', monthKey: 'all', page: 0 };
+                f.status = status; f.page = 0;
+                this.showInvoicesList(chatId, query.message.message_id, f);
+            } else if (data.startsWith('inv_fm_')) {
+                const monthKey = data.replace('inv_fm_', '');
+                const f = this.listFilters.get(chatId) || { status: 'all', monthKey: 'all', page: 0 };
+                f.monthKey = monthKey; f.page = 0;
+                this.showInvoicesList(chatId, query.message.message_id, f);
+            } else if (data.startsWith('inv_p_')) {
+                const page = parseInt(data.replace('inv_p_', ''));
+                const f = this.listFilters.get(chatId) || { status: 'all', monthKey: 'all', page: 0 };
+                f.page = page;
+                this.showInvoicesList(chatId, query.message.message_id, f);
+            } else if (data.startsWith('partial_')) {
+                const invoiceId = data.replace('partial_', '');
+                this.askPartialPayment(chatId, userId, invoiceId, query.message.message_id);
+            } else if (data.startsWith('unpay_')) {
+                const invoiceId = data.replace('unpay_', '');
+                await this.cancelInvoicePayment(chatId, invoiceId, query.message.message_id);
+            } else if (data.startsWith('remind_')) {
+                const invoiceId = data.replace('remind_', '');
+                await this.sendReminderFromBot(chatId, invoiceId);
+            } else if (data === 'clients_menu') {
+                this.showClientsMenu(chatId, query.message.message_id);
+            } else if (data === 'cl_noop') {
+                // индикатор страницы, ничего не делаем
+            } else if (data.startsWith('cl_page_')) {
+                this.showClientsMenu(chatId, query.message.message_id, parseInt(data.replace('cl_page_', '')));
+            } else if (data === 'cl_new') {
+                this.startClientCreate(chatId, userId);
+            } else if (data === 'cl_search') {
+                this.startClientSearch(chatId, userId);
+            } else if (data.startsWith('cl_ename_')) {
+                this.startClientEdit(chatId, userId, data.replace('cl_ename_', ''), 'name');
+            } else if (data.startsWith('cl_ephone_')) {
+                this.startClientEdit(chatId, userId, data.replace('cl_ephone_', ''), 'phone');
+            } else if (data.startsWith('cl_delyes_')) {
+                this.doClientDelete(chatId, data.replace('cl_delyes_', ''), query.message.message_id);
+            } else if (data.startsWith('cl_del_')) {
+                this.confirmClientDelete(chatId, data.replace('cl_del_', ''), query.message.message_id);
+            } else if (data.startsWith('cl_')) {
+                this.showClientDetails(chatId, data.replace('cl_', ''), query.message.message_id);
             }
 
             this.answerCallbackQuery(query.id);
@@ -421,6 +470,54 @@ class InvoiceTelegramBot {
         const session = this.userSessions.get(userId);
 
         if (!session) return;
+
+        // --- Управление клиентами ---
+        if (session.state === 'cl_new_name') {
+            const name = message.text.trim();
+            if (!name) { this.sendMessage(chatId, '❌ Имя не может быть пустым'); return; }
+            session.clNew = { name };
+            session.state = 'cl_new_phone';
+            this.sendMessage(chatId, `👤 Клиент: <b>${name}</b>\n\n📱 Введите номер телефона (WhatsApp) или <b>-</b> чтобы пропустить:`);
+            return;
+        }
+        if (session.state === 'cl_new_phone') {
+            const phone = message.text.trim() === '-' ? '' : message.text.trim();
+            const client = this.clientsDb.addClient({ name: session.clNew.name, phone });
+            this.userSessions.delete(userId);
+            this.sendMessage(chatId, `✅ Клиент <b>${client.name}</b> создан.`, { reply_markup: { inline_keyboard: [[{ text: '👤 Открыть карточку', callback_data: `cl_${client.id}` }], [{ text: '👥 К клиентам', callback_data: 'clients_menu' }]] } });
+            return;
+        }
+        if (session.state === 'cl_edit_name') {
+            const name = message.text.trim();
+            if (!name) { this.sendMessage(chatId, '❌ Имя не может быть пустым'); return; }
+            const client = this.clientsDb.updateClient(session.clientId, { name });
+            this.userSessions.delete(userId);
+            if (client) this.sendMessage(chatId, `✅ Имя обновлено: <b>${client.name}</b>`, { reply_markup: { inline_keyboard: [[{ text: '👤 Карточка', callback_data: `cl_${client.id}` }]] } });
+            else this.sendMessage(chatId, '❌ Клиент не найден');
+            return;
+        }
+        if (session.state === 'cl_edit_phone') {
+            const newPhone = message.text.trim();
+            const client = this.clientsDb.getClientById(session.clientId);
+            if (!client) { this.userSessions.delete(userId); this.sendMessage(chatId, '❌ Клиент не найден'); return; }
+            const oldPhone = client.phone;
+            const updated = this.clientsDb.updateClient(session.clientId, { phone: newPhone });
+            this.userSessions.delete(userId);
+            let synced = [];
+            if (oldPhone && updated.phone && oldPhone !== updated.phone) {
+                synced = this.invoiceDb.syncClientPhone(oldPhone, updated.phone, updated.name) || [];
+            }
+            let msg = `✅ Телефон обновлён: <b>${updated.phone || '—'}</b>`;
+            if (synced.length > 0) msg += `\n🔄 Номер проброшен в активные счета: ${synced.map(s => '#' + s.invoiceNumber).join(', ')}`;
+            this.sendMessage(chatId, msg, { reply_markup: { inline_keyboard: [[{ text: '👤 Карточка', callback_data: `cl_${updated.id}` }]] } });
+            return;
+        }
+        if (session.state === 'cl_search') {
+            const q = message.text.trim();
+            this.userSessions.delete(userId);
+            this.showClientSearchResults(chatId, q);
+            return;
+        }
 
         // Создание регулярного платежа
         if (session.state === 'rp_waiting_name') {
@@ -488,6 +585,31 @@ class InvoiceTelegramBot {
                 this.sendMessage(chatId, '❌ Ошибка: ' + e.message);
                 this.userSessions.delete(userId);
             }
+            return;
+        }
+
+        if (session.state === 'awaiting_partial_amount') {
+            const raw = message.text.trim().replace(/[^\d.,]/g, '').replace(',', '.');
+            const amount = parseFloat(raw);
+            if (isNaN(amount) || amount <= 0) {
+                this.sendMessage(chatId, '❌ Введите корректную сумму (число)');
+                return;
+            }
+            const inv = this.invoiceDb.getInvoiceById(session.invoiceId);
+            if (!inv) { this.userSessions.delete(userId); return; }
+            const newPaid = (inv.paidAmount || 0) + amount;
+            const isNowFull = newPaid >= inv.amount;
+            this.invoiceDb.updateInvoice(session.invoiceId, {
+                paidAmount: newPaid,
+                paid: isNowFull
+            });
+            this.userSessions.delete(userId);
+            const remaining = inv.amount - newPaid;
+            let msg = isNowFull
+                ? `✅ Счет №${inv.invoiceNumber} полностью оплачен!`
+                : `💵 Оплачено: <b>${newPaid.toLocaleString('ru-RU')} ₽</b>\nОстаток: ${remaining.toLocaleString('ru-RU')} ₽`;
+            this.sendMessage(chatId, msg);
+            setTimeout(() => this.showInvoiceDetails(chatId, session.invoiceId, session.messageId), 800);
             return;
         }
 
@@ -740,46 +862,109 @@ class InvoiceTelegramBot {
     // Просмотр счетов
     // ==========================================
 
-    showInvoicesList(chatId, messageId = null) {
-        const invoices = this.invoiceDb.getAllInvoices();
+    getAvailableMonths(invoices) {
+        const months = new Map();
+        invoices.forEach(inv => {
+            const d = new Date(inv.invoiceDate || inv.createdAt);
+            const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+            const label = d.toLocaleDateString('ru-RU', { year: 'numeric', month: 'long' });
+            months.set(key, label.charAt(0).toUpperCase() + label.slice(1));
+        });
+        return Array.from(months.entries()).sort((a,b) => b[0].localeCompare(a[0]));
+    }
 
-        if (invoices.length === 0) {
-            const msg = '📋 Счета не найдены';
-            if (messageId) {
-                this.editMessageText(chatId, messageId, msg);
-            } else {
-                this.sendMessage(chatId, msg);
+    showInvoicesList(chatId, messageId = null, overrideFilters = null) {
+        const f = overrideFilters || this.listFilters.get(chatId) || { status: 'all', monthKey: 'all', page: 0 };
+        this.listFilters.set(chatId, f);
+
+        const allInvoices = this.invoiceDb.getAllInvoices();
+        const availMonths = this.getAvailableMonths(allInvoices);
+
+        // Apply filters
+        let filtered = allInvoices.filter(inv => {
+            const paidAmt = inv.paidAmount || 0;
+            const isFullyPaid = inv.paid || paidAmt >= inv.amount;
+            const isPartial = !inv.paid && paidAmt > 0 && paidAmt < inv.amount;
+            if (f.status === 'paid' && !isFullyPaid) return false;
+            if (f.status === 'unpaid' && (isFullyPaid || isPartial)) return false;
+            if (f.status === 'partial' && !isPartial) return false;
+            if (f.monthKey && f.monthKey !== 'all') {
+                const d = new Date(inv.invoiceDate || inv.createdAt);
+                const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+                if (key !== f.monthKey) return false;
             }
+            return true;
+        }).sort((a,b) => {
+            const da = new Date(a.invoiceDate || a.createdAt);
+            const db = new Date(b.invoiceDate || b.createdAt);
+            return db - da;
+        });
+
+        const PAGE_SIZE = 8;
+        const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+        const page = Math.min(f.page, totalPages - 1);
+        const pageInvoices = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+        const keyboard = { inline_keyboard: [] };
+
+        // Status filter row
+        const statuses = [
+            { label: f.status==='all' ? '▶ Все' : 'Все', val: 'all' },
+            { label: f.status==='unpaid' ? '▶ ❌ Не опл.' : '❌ Не опл.', val: 'unpaid' },
+            { label: f.status==='partial' ? '▶ ⚠️ Частичн.' : '⚠️ Частичн.', val: 'partial' },
+            { label: f.status==='paid' ? '▶ ✅ Опл.' : '✅ Опл.', val: 'paid' }
+        ];
+        keyboard.inline_keyboard.push(statuses.map(s => ({ text: s.label, callback_data: `inv_fs_${s.val}` })));
+
+        // Month filter row (show current month + up to 3 recent)
+        if (availMonths.length > 0) {
+            const monthBtns = [{ text: f.monthKey==='all' ? '▶ Все мес.' : 'Все мес.', callback_data: 'inv_fm_all' }];
+            availMonths.slice(0, 3).forEach(([key, label]) => {
+                const shortLabel = label.replace(/\s+\d{4}$/, '').substring(0,8);
+                monthBtns.push({ text: f.monthKey===key ? `▶ ${shortLabel}` : shortLabel, callback_data: `inv_fm_${key}` });
+            });
+            keyboard.inline_keyboard.push(monthBtns);
+        }
+
+        if (filtered.length === 0) {
+            keyboard.inline_keyboard.push([{ text: '🏠 Главное меню', callback_data: 'main_menu' }]);
+            const msg = `📋 <b>Счета</b>\n\nПо выбранным фильтрам счета не найдены.`;
+            if (messageId) this.editMessageText(chatId, messageId, msg, { reply_markup: keyboard });
+            else this.sendMessage(chatId, msg, { reply_markup: keyboard });
             return;
         }
 
-        const keyboard = {
-            inline_keyboard: []
-        };
-
-        invoices.slice(-10).reverse().forEach(invoice => {
-            const status = invoice.paid ? '✅' : '❌';
-            const paidAmount = invoice.paidAmount || 0;
-            const isPartial = !invoice.paid && paidAmount > 0;
-            const statusIcon = isPartial ? '⚠️' : status;
-
+        // Invoice rows
+        pageInvoices.forEach(invoice => {
+            const paidAmt = invoice.paidAmount || 0;
+            const isFullyPaid = invoice.paid || paidAmt >= invoice.amount;
+            const isPartial = !invoice.paid && paidAmt > 0;
+            const icon = isFullyPaid ? '✅' : isPartial ? '⚠️' : '❌';
+            const d = new Date(invoice.invoiceDate || invoice.createdAt);
+            const dateStr = d.toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit' });
             keyboard.inline_keyboard.push([{
-                text: `${statusIcon} №${invoice.invoiceNumber} - ${invoice.client} - ${invoice.amount.toLocaleString('ru-RU')} ₽`,
+                text: `${icon} №${invoice.invoiceNumber} ${dateStr} ${invoice.client} — ${invoice.amount.toLocaleString('ru-RU')}₽`,
                 callback_data: `invoice_${invoice.id}`
             }]);
         });
 
-        keyboard.inline_keyboard.push([
-            { text: '🏠 Главное меню', callback_data: 'main_menu' }
-        ]);
-
-        const msg = '📋 <b>Последние счета:</b>\n\n✅ - Оплачен\n⚠️ - Частично\n❌ - Не оплачен';
-
-        if (messageId) {
-            this.editMessageText(chatId, messageId, msg, { reply_markup: keyboard });
-        } else {
-            this.sendMessage(chatId, msg, { reply_markup: keyboard });
+        // Pagination
+        if (totalPages > 1) {
+            const paginationRow = [];
+            if (page > 0) paginationRow.push({ text: `◀ ${page}/${totalPages}`, callback_data: `inv_p_${page-1}` });
+            paginationRow.push({ text: `${page+1}/${totalPages}`, callback_data: `inv_p_${page}` });
+            if (page < totalPages - 1) paginationRow.push({ text: `${page+2}/${totalPages} ▶`, callback_data: `inv_p_${page+1}` });
+            keyboard.inline_keyboard.push(paginationRow);
         }
+
+        keyboard.inline_keyboard.push([{ text: '🏠 Главное меню', callback_data: 'main_menu' }]);
+
+        const statusLabels = { all: 'Все', paid: '✅ Оплаченные', unpaid: '❌ Неоплаченные', partial: '⚠️ Частично' };
+        const monthLabel = f.monthKey && f.monthKey !== 'all' ? (availMonths.find(([k]) => k===f.monthKey)||['',''])[1] : 'все месяцы';
+        const msg = `📋 <b>Счета</b> — ${statusLabels[f.status]||'Все'}, ${monthLabel}\nПоказано: ${pageInvoices.length} из ${filtered.length}\n\n✅ Оплачен | ⚠️ Частично | ❌ Не оплачен`;
+
+        if (messageId) this.editMessageText(chatId, messageId, msg, { reply_markup: keyboard });
+        else this.sendMessage(chatId, msg, { reply_markup: keyboard });
     }
 
     showUnpaidInvoices(chatId, messageId = null) {
@@ -867,12 +1052,18 @@ class InvoiceTelegramBot {
 
         if (!isFullyPaid) {
             keyboard.inline_keyboard.push([
-                { text: '💰 Отметить как оплаченный', callback_data: `pay_${invoice.id}` }
+                { text: '✅ Оплачен полностью', callback_data: `pay_${invoice.id}` },
+                { text: '💵 Частичная оплата', callback_data: `partial_${invoice.id}` }
+            ]);
+        } else {
+            keyboard.inline_keyboard.push([
+                { text: '↩ Отменить оплату', callback_data: `unpay_${invoice.id}` }
             ]);
         }
 
         keyboard.inline_keyboard.push([
-            { text: '📤 Отправить в WhatsApp', callback_data: `send_${invoice.id}` }
+            { text: '📤 Отправить счет (WA)', callback_data: `send_${invoice.id}` },
+            { text: '🔔 Напоминание (WA)', callback_data: `remind_${invoice.id}` }
         ]);
 
         keyboard.inline_keyboard.push([
@@ -961,6 +1152,53 @@ class InvoiceTelegramBot {
         } catch (error) {
             console.error('[TelegramBot] Ошибка отправки в WhatsApp:', error);
             this.sendMessage(chatId, '❌ Ошибка при отправке счета');
+        }
+    }
+
+    askPartialPayment(chatId, userId, invoiceId, messageId = null) {
+        const inv = this.invoiceDb.getInvoiceById(invoiceId);
+        if (!inv) { this.sendMessage(chatId, '❌ Счет не найден'); return; }
+        const paidAmt = inv.paidAmount || 0;
+        const remaining = inv.amount - paidAmt;
+        this.userSessions.set(userId, { state: 'awaiting_partial_amount', invoiceId, messageId });
+        let msg = `💵 <b>Частичная оплата</b>\n\nСчет №${inv.invoiceNumber} — ${inv.client}\nСумма: ${inv.amount.toLocaleString('ru-RU')} ₽`;
+        if (paidAmt > 0) msg += `\nУже оплачено: ${paidAmt.toLocaleString('ru-RU')} ₽\nОстаток: ${remaining.toLocaleString('ru-RU')} ₽`;
+        msg += `\n\nВведите сумму оплаты:`;
+        this.sendMessage(chatId, msg, {
+            reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: `invoice_${invoiceId}` }]] }
+        });
+    }
+
+    async cancelInvoicePayment(chatId, invoiceId, messageId = null) {
+        const inv = this.invoiceDb.getInvoiceById(invoiceId);
+        if (!inv) { this.sendMessage(chatId, '❌ Счет не найден'); return; }
+        this.invoiceDb.updateInvoice(invoiceId, { paid: false, paidAmount: 0 });
+        this.sendMessage(chatId, `↩ Оплата счета №${inv.invoiceNumber} отменена`);
+        setTimeout(() => this.showInvoiceDetails(chatId, invoiceId, messageId), 600);
+    }
+
+    async sendReminderFromBot(chatId, invoiceId) {
+        try {
+            const inv = this.invoiceDb.getInvoiceById(invoiceId);
+            if (!inv) { this.sendMessage(chatId, '❌ Счет не найден'); return; }
+            if (!inv.clientPhone) { this.sendMessage(chatId, '❌ У клиента не указан телефон'); return; }
+            const paidAmt = inv.paidAmount || 0;
+            const isFullyPaid = inv.paid || paidAmt >= inv.amount;
+            if (isFullyPaid) { this.sendMessage(chatId, '✅ Счет уже оплачен, напоминание не нужно'); return; }
+            this.sendMessage(chatId, `⏳ Отправляю напоминание клиенту ${inv.client}...`);
+            if (this.paymentReminderService) {
+                await this.paymentReminderService.sendReminder(inv);
+                this.invoiceDb.updateInvoice(invoiceId, {
+                    lastReminderSentAt: new Date().toISOString(),
+                    reminderCount: (inv.reminderCount || 0) + 1
+                });
+                this.sendMessage(chatId, `✅ Напоминание отправлено!\n📞 ${inv.client} (${inv.clientPhone})\n💰 Счет №${inv.invoiceNumber} на ${inv.amount.toLocaleString('ru-RU')} ₽`);
+            } else {
+                this.sendMessage(chatId, '❌ Сервис напоминаний не инициализирован');
+            }
+        } catch (error) {
+            console.error('[TelegramBot] Ошибка отправки напоминания:', error);
+            this.sendMessage(chatId, '❌ Ошибка отправки: ' + error.message);
         }
     }
 
@@ -1118,6 +1356,127 @@ class InvoiceTelegramBot {
             console.error('[TelegramBot] Ошибка снятия оплаты:', e.message);
         }
         this.showRecurringPaymentsStatus(chatId, messageId);
+    }
+
+    // ==========================================
+    // Управление клиентами (CRUD + поиск)
+    // ==========================================
+
+    showClientsMenu(chatId, messageId = null, page = 0) {
+        const clients = this.clientsDb.getAllClients();
+        const perPage = 10;
+        const totalPages = Math.max(1, Math.ceil(clients.length / perPage));
+        if (page < 0) page = 0;
+        if (page >= totalPages) page = totalPages - 1;
+        const slice = clients.slice(page * perPage, page * perPage + perPage);
+
+        const keyboard = { inline_keyboard: [] };
+        keyboard.inline_keyboard.push([
+            { text: '➕ Новый клиент', callback_data: 'cl_new' },
+            { text: '🔍 Поиск', callback_data: 'cl_search' }
+        ]);
+        slice.forEach(c => {
+            keyboard.inline_keyboard.push([{
+                text: `${c.name}${c.phone ? ' (' + c.phone + ')' : ''}`,
+                callback_data: `cl_${c.id}`
+            }]);
+        });
+        if (totalPages > 1) {
+            const nav = [];
+            if (page > 0) nav.push({ text: '◀', callback_data: `cl_page_${page - 1}` });
+            nav.push({ text: `${page + 1}/${totalPages}`, callback_data: 'cl_noop' });
+            if (page < totalPages - 1) nav.push({ text: '▶', callback_data: `cl_page_${page + 1}` });
+            keyboard.inline_keyboard.push(nav);
+        }
+        keyboard.inline_keyboard.push([{ text: '🏠 Главное меню', callback_data: 'main_menu' }]);
+
+        const text = `👥 <b>Клиенты</b> (всего: ${clients.length})\n\nВыберите клиента или действие:`;
+        if (messageId) this.editMessageText(chatId, messageId, text, { reply_markup: keyboard });
+        else this.sendMessage(chatId, text, { reply_markup: keyboard });
+    }
+
+    showClientDetails(chatId, clientId, messageId = null) {
+        const client = this.clientsDb.getClientById(clientId);
+        if (!client) { this.sendMessage(chatId, '❌ Клиент не найден'); return; }
+
+        const allInvoices = this.invoiceDb.getAllInvoices();
+        const tail = (client.phone || '').replace(/\D/g, '').slice(-10);
+        const linked = allInvoices.filter(inv =>
+            inv.client === client.name ||
+            (tail && inv.clientPhone && inv.clientPhone.replace(/\D/g, '').slice(-10) === tail)
+        );
+        const unpaid = linked.filter(inv => !inv.paid);
+
+        let text = `👤 <b>${client.name}</b>\n\n`;
+        text += `📱 Телефон: ${client.phone || '—'}\n`;
+        if (client.email) text += `✉️ Email: ${client.email}\n`;
+        if (client.address) text += `🏠 Адрес: ${client.address}\n`;
+        if (client.notes) text += `📝 Заметки: ${client.notes}\n`;
+        text += `\n📄 Счетов: ${linked.length} (неоплачено: ${unpaid.length})`;
+
+        const keyboard = { inline_keyboard: [
+            [{ text: '✏️ Имя', callback_data: `cl_ename_${client.id}` },
+             { text: '📱 Телефон', callback_data: `cl_ephone_${client.id}` }],
+            [{ text: '🗑 Удалить', callback_data: `cl_del_${client.id}` }],
+            [{ text: '◀️ К списку', callback_data: 'clients_menu' },
+             { text: '🏠 Меню', callback_data: 'main_menu' }]
+        ] };
+
+        if (messageId) this.editMessageText(chatId, messageId, text, { reply_markup: keyboard });
+        else this.sendMessage(chatId, text, { reply_markup: keyboard });
+    }
+
+    startClientCreate(chatId, userId) {
+        this.userSessions.set(userId, { state: 'cl_new_name' });
+        this.sendMessage(chatId, '👤 Введите имя или название нового клиента:\n\n<i>/cancel — отмена</i>');
+    }
+
+    startClientEdit(chatId, userId, clientId, field) {
+        const client = this.clientsDb.getClientById(clientId);
+        if (!client) { this.sendMessage(chatId, '❌ Клиент не найден'); return; }
+        if (field === 'name') {
+            this.userSessions.set(userId, { state: 'cl_edit_name', clientId });
+            this.sendMessage(chatId, `Текущее имя: <b>${client.name}</b>\n\nВведите новое имя:\n\n<i>/cancel — отмена</i>`);
+        } else {
+            this.userSessions.set(userId, { state: 'cl_edit_phone', clientId });
+            this.sendMessage(chatId, `Текущий телефон: <b>${client.phone || '—'}</b>\n\nВведите новый номер (WhatsApp).\nПри смене номер автоматически обновится во всех активных счетах клиента.\n\n<i>/cancel — отмена</i>`);
+        }
+    }
+
+    confirmClientDelete(chatId, clientId, messageId) {
+        const client = this.clientsDb.getClientById(clientId);
+        if (!client) { this.sendMessage(chatId, '❌ Клиент не найден'); return; }
+        const keyboard = { inline_keyboard: [
+            [{ text: '🗑 Да, удалить', callback_data: `cl_delyes_${client.id}` }],
+            [{ text: '◀️ Отмена', callback_data: `cl_${client.id}` }]
+        ] };
+        this.editMessageText(chatId, messageId, `⚠️ Удалить клиента <b>${client.name}</b>?\n\nСами счета останутся, удалится только карточка клиента.`, { reply_markup: keyboard });
+    }
+
+    doClientDelete(chatId, clientId, messageId) {
+        const deleted = this.clientsDb.deleteClient(clientId);
+        this.showClientsMenu(chatId, messageId);
+        if (deleted) this.sendMessage(chatId, `🗑 Клиент <b>${deleted.name}</b> удалён.`);
+    }
+
+    startClientSearch(chatId, userId) {
+        this.userSessions.set(userId, { state: 'cl_search' });
+        this.sendMessage(chatId, '🔍 Введите имя, телефон или email для поиска:\n\n<i>/cancel — отмена</i>');
+    }
+
+    showClientSearchResults(chatId, query) {
+        const results = this.clientsDb.searchClients(query);
+        if (results.length === 0) {
+            this.sendMessage(chatId, `🔍 По запросу «${query}» ничего не найдено.`, { reply_markup: { inline_keyboard: [[{ text: '👥 К клиентам', callback_data: 'clients_menu' }]] } });
+            return;
+        }
+        const keyboard = { inline_keyboard: [] };
+        results.slice(0, 20).forEach(c => keyboard.inline_keyboard.push([{
+            text: `${c.name}${c.phone ? ' (' + c.phone + ')' : ''}`,
+            callback_data: `cl_${c.id}`
+        }]));
+        keyboard.inline_keyboard.push([{ text: '👥 К клиентам', callback_data: 'clients_menu' }]);
+        this.sendMessage(chatId, `🔍 Найдено: ${results.length}`, { reply_markup: keyboard });
     }
 
 }

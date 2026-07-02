@@ -48,6 +48,7 @@ class ClientsDatabase {
       email: clientData.email || '',
       address: clientData.address || '',
       notes: clientData.notes || '',
+      paymentDay: clientData.paymentDay || null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };

@@ -69,12 +69,10 @@ class AutoSendScheduler {
       return false;
     }
 
-    // Проверяем, что не прошло больше 24 часов с момента планируемой отправки
-    const diffMs = now - sendDate;
-    const diffHours = diffMs / (1000 * 60 * 60);
-
-    // Разрешаем отправку в течение 24 часов после указанного времени
-    return diffHours >= 0 && diffHours < 24;
+    // Дата наступила — отправляем, даже если запланированное время было пропущено
+    // (раньше окно ограничивалось 24 часами, и пропущенные счета зависали навсегда).
+    // Защита от повторной отправки в тот же день есть в wasSentToClientToday().
+    return true;
   }
 
   /**
@@ -168,6 +166,14 @@ class AutoSendScheduler {
         if (!this.isTimeToSend(invoice)) {
           const sendDate = new Date(invoice.nextSendDate);
           console.log(`[AutoSend] Пропускаем счет №${invoice.invoiceNumber}: время еще не наступило (запланировано на ${sendDate.toLocaleString('ru-RU')})`);
+          return false;
+        }
+
+        // Если счет уже отправляли через WhatsApp после запланированной даты
+        // (например, вручную), не дублируем отправку — сдвигаем дату на следующий период
+        if (invoice.lastWhatsAppSent && new Date(invoice.lastWhatsAppSent) >= new Date(invoice.nextSendDate)) {
+          console.log(`[AutoSend] Счет №${invoice.invoiceNumber} уже отправлен ${new Date(invoice.lastWhatsAppSent).toLocaleString('ru-RU')} (после запланированной даты), сдвигаем дату следующей отправки`);
+          this.db.updateNextSendDate(invoice.id);
           return false;
         }
 

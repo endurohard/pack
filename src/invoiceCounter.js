@@ -8,6 +8,7 @@ const __dirname = path.dirname(__filename);
 class InvoiceCounter {
   constructor() {
     this.counterFile = path.join(__dirname, '../data/invoice-counter.json');
+    this.db = null; // база счетов для проверки на коллизии номеров
     this.ensureCounterFile();
   }
 
@@ -58,11 +59,14 @@ class InvoiceCounter {
    */
   getNextInvoiceNumber() {
     const counter = this.loadCounter();
-    counter.current += 1;
+    const maxInDb = this.getMaxInvoiceNumberInDb();
+    // Берём максимум из файла-счётчика и базы, чтобы НИКОГДА не выдать уже занятый номер
+    const next = Math.max(counter.current, maxInDb) + 1;
+    counter.current = next;
     this.saveCounter(counter);
 
     // Возвращаем число, а не строку, чтобы избежать дублирования
-    return counter.current;
+    return next;
   }
 
   /**
@@ -71,6 +75,40 @@ class InvoiceCounter {
   getCurrentNumber() {
     const counter = this.loadCounter();
     return counter.current;
+  }
+
+  /**
+   * Зарегистрировать базу счетов для проверки на коллизии номеров
+   */
+  setDatabase(db) {
+    this.db = db;
+  }
+
+  /**
+   * Максимальный номер счета в базе (0, если базы/счетов нет)
+   */
+  getMaxInvoiceNumberInDb() {
+    try {
+      if (!this.db || typeof this.db.getAllInvoices !== 'function') return 0;
+      const all = this.db.getAllInvoices();
+      if (!all || all.length === 0) return 0;
+      return all.reduce((max, inv) => {
+        const num = parseInt(inv.invoiceNumber) || 0;
+        return num > max ? num : max;
+      }, 0);
+    } catch (error) {
+      console.error('Ошибка чтения максимального номера из базы:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Следующий свободный номер БЕЗ резервирования (для предпросмотра в форме)
+   */
+  peekNextNumber() {
+    const counter = this.loadCounter();
+    const maxInDb = this.getMaxInvoiceNumberInDb();
+    return Math.max(counter.current, maxInDb) + 1;
   }
 
   /**
@@ -113,11 +151,10 @@ class InvoiceCounter {
 
       const currentCounter = this.getCurrentNumber();
 
-      if (maxInvoiceNumber >= currentCounter) {
-        // Счетчик отстает от базы - обновляем
-        const newCounter = maxInvoiceNumber + 1;
-        this.setCounter(newCounter);
-        console.log(`🔄 Синхронизация счетчика: ${currentCounter} → ${newCounter} (максимальный номер в базе: ${maxInvoiceNumber})`);
+      if (maxInvoiceNumber > currentCounter) {
+        // Поднимаем "пол" счётчика до максимума в базе (следующий номер = +1 при выдаче)
+        this.setCounter(maxInvoiceNumber);
+        console.log(`🔄 Синхронизация счетчика: ${currentCounter} → ${maxInvoiceNumber} (максимальный номер в базе)`);
       } else {
         console.log(`✅ Счетчик синхронизирован (текущий: ${currentCounter}, максимальный в базе: ${maxInvoiceNumber})`);
       }

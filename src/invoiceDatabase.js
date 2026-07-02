@@ -172,6 +172,45 @@ class InvoiceDatabase {
   }
 
   /**
+   * Синхронизировать номер телефона клиента в его активных (неоплаченных) счетах.
+   * Напоминания и авто-отправка берут номер из invoice.clientPhone, а не из карточки
+   * клиента, поэтому при смене номера в карточке его нужно пробросить в счета.
+   * Сопоставление: по последним 10 цифрам старого номера ИЛИ по имени клиента.
+   */
+  syncClientPhone(oldPhone, newPhone, clientName) {
+    const digits = (p) => {
+      let d = String(p || '').replace(/\D/g, '');
+      if (d.startsWith('8')) d = '7' + d.slice(1);
+      if (d.length === 10) d = '7' + d;
+      return d;
+    };
+    const oldD = digits(oldPhone);
+    const newD = digits(newPhone);
+    if (!newD || oldD === newD) return [];
+    const newFormatted = '+' + newD;
+    const oldTail = oldD.slice(-10);
+    const updated = [];
+    for (const inv of this.invoices) {
+      if (inv.paid || !inv.clientPhone) continue;
+      const invTail = String(inv.clientPhone).replace(/\D/g, '').slice(-10);
+      const byPhone = oldTail && invTail === oldTail;
+      const byName = clientName && inv.client === clientName;
+      if (!byPhone && !byName) continue;
+      if (inv.clientPhone === newFormatted) continue;
+      const prev = inv.clientPhone;
+      inv.clientPhone = newFormatted;
+      inv.updatedAt = new Date().toISOString();
+      updated.push({ invoiceNumber: inv.invoiceNumber, from: prev, to: newFormatted });
+    }
+    if (updated.length > 0) {
+      this.saveData().catch(err => console.error('Ошибка сохранения при синхронизации телефона:', err));
+      console.log(`[InvoiceDB] 🔄 Номер клиента проброшен в ${updated.length} активных счетах: ` +
+        updated.map(u => `#${u.invoiceNumber} ${u.from}→${u.to}`).join(', '));
+    }
+    return updated;
+  }
+
+  /**
    * Отметить счет как неоплаченный
    */
   markAsUnpaid(id) {

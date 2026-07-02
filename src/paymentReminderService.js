@@ -26,6 +26,9 @@ class PaymentReminderService {
     this.reminderQueue = [];
     this.currentSending = null;
     this.cancelledReminders = new Set(); // ID счетов, напоминание которых отменено
+    this.manualQueue = [];
+    this.isProcessingManual = false;
+    this.MANUAL_QUEUE_DELAY = 5 * 60 * 1000; // 5 minutes between sends
   }
 
   /**
@@ -186,10 +189,15 @@ class PaymentReminderService {
       const sentDate = invoice.lastWhatsAppSent
         ? new Date(invoice.lastWhatsAppSent)
         : new Date(invoice.sentToClientAt);
-      const daysSinceSent = Math.floor((new Date() - sentDate) / (1000 * 60 * 60 * 24));
 
-      // Если счет только что отправлен (сегодня), не отправляем напоминание
-      if (daysSinceSent === 0) {
+      // Если счет отправлен сегодня (по календарному дню), не отправляем напоминание.
+      // Сравниваем календарные дни, а не разницу в 24 часа: счет, отправленный вчера днем,
+      // должен получить напоминание уже при утренней проверке.
+      const sentDay = new Date(sentDate);
+      sentDay.setHours(0, 0, 0, 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (sentDay.getTime() === today.getTime()) {
         return false;
       }
 
@@ -328,7 +336,19 @@ class PaymentReminderService {
     console.log(`[PaymentReminder] Сообщение (только текст, без файла):\n${message}`);
 
     // Отправляем только текст через WhatsApp (без PDF файла)
-    const result = await this.whatsappManager.sendMessage(phone, message);
+    // Retry один раз при ошибке "context destroyed" (навигация страницы)
+    let result;
+    try {
+      result = await this.whatsappManager.sendMessage(phone, message);
+    } catch (err) {
+      if (err.message && err.message.includes('context was destroyed')) {
+        console.log(`[PaymentReminder] Контекст уничтожен, повтор через 5 сек...`);
+        await this.sleep(5000);
+        result = await this.whatsappManager.sendMessage(phone, message);
+      } else {
+        throw err;
+      }
+    }
 
     if (!result.success) {
       throw new Error(result.error || 'Не удалось отправить сообщение');
@@ -412,6 +432,94 @@ class PaymentReminderService {
       queueLength: this.reminderQueue.length,
       currentSending: this.currentSending ? this.currentSending.invoiceNumber : null
     };
+  }
+
+  addToManualQueue(invoiceIds) {
+    const results = [];
+    for (const invoiceId of invoiceIds) {
+      const invoice = this.db.getInvoiceById(invoiceId);
+      if (!invoice) { results.push({ invoiceId, success: false, error: 'Счет не найден' }); continue; }
+      if (invoice.paid) { results.push({ invoiceId, success: false, error: 'Счет оплачен' }); continue; }
+      if (!invoice.clientPhone) { results.push({ invoiceId, success: false, error: 'Нет номера телефона' }); continue; }
+      if (this.manualQueue.some(item => item.invoice.id === invoiceId)) {
+        results.push({ invoiceId, success: false, error: 'Уже в очереди' }); continue;
+      }
+      this.manualQueue.push({ invoice, status: 'pending', addedAt: new Date().toISOString() });
+      results.push({ invoiceId, invoiceNumber: invoice.invoiceNumber, client: invoice.client, success: true });
+    }
+    if (!this.isProcessingManual && this.manualQueue.some(i => i.status === 'pending')) {
+      this.processManualQueue();
+    }
+    return results;
+  }
+
+  async processManualQueue() {
+    if (this.isProcessingManual) return;
+    this.isProcessingManual = true;
+    try {
+      while (true) {
+        const next = this.manualQueue.find(item => item.status === 'pending');
+        if (!next) break;
+        next.status = 'sending';
+        console.log(`[ManualQueue] Отправка напоминания для счета №${next.invoice.invoiceNumber} (${next.invoice.client})`);
+        try {
+          await this.sendReminder(next.invoice);
+          next.status = 'sent';
+          next.sentAt = new Date().toISOString();
+          this.db.updateInvoice(next.invoice.id, {
+            lastReminderSentAt: next.sentAt,
+            reminderCount: (next.invoice.reminderCount || 0) + 1
+          });
+          console.log(`[ManualQueue] ✅ Напоминание для счета №${next.invoice.invoiceNumber} отправлено`);
+        } catch (error) {
+          next.status = 'failed';
+          next.error = error.message;
+          console.error(`[ManualQueue] ❌ Ошибка для счета №${next.invoice.invoiceNumber}:`, error.message);
+        }
+        const hasMore = this.manualQueue.some(item => item.status === 'pending');
+        if (hasMore) {
+          console.log(`[ManualQueue] Ожидание 5 минут перед следующей отправкой...`);
+          await this.sleep(this.MANUAL_QUEUE_DELAY);
+        }
+      }
+    } finally {
+      this.isProcessingManual = false;
+    }
+  }
+
+  getManualQueueStatus() {
+    return {
+      items: this.manualQueue.map(item => ({
+        invoiceId: item.invoice.id,
+        invoiceNumber: item.invoice.invoiceNumber,
+        client: item.invoice.client,
+        phone: item.invoice.clientPhone,
+        status: item.status,
+        addedAt: item.addedAt,
+        sentAt: item.sentAt || null,
+        error: item.error || null
+      })),
+      isProcessing: this.isProcessingManual,
+      pendingCount: this.manualQueue.filter(i => i.status === 'pending').length,
+      sendingCount: this.manualQueue.filter(i => i.status === 'sending').length,
+      sentCount: this.manualQueue.filter(i => i.status === 'sent').length,
+      failedCount: this.manualQueue.filter(i => i.status === 'failed').length
+    };
+  }
+
+  removeFromManualQueue(invoiceId) {
+    const idx = this.manualQueue.findIndex(i => i.invoice.id === invoiceId && i.status === 'pending');
+    if (idx !== -1) {
+      this.manualQueue.splice(idx, 1);
+      return { success: true };
+    }
+    return { success: false, error: 'Не найдено или уже отправляется' };
+  }
+
+  clearManualQueue() {
+    const removed = this.manualQueue.filter(i => i.status === 'pending').length;
+    this.manualQueue = this.manualQueue.filter(i => i.status !== 'pending');
+    return { removed };
   }
 }
 

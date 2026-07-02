@@ -264,10 +264,10 @@ class WhatsAppManager {
         });
       } else {
         console.log('✅ WhatsApp Web уже открыт, открываю чат...');
-        await this.page.evaluate((phone) => {
-          window.location.href = `https://web.whatsapp.com/send?phone=${phone}`;
-        }, cleanPhone);
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await this.page.goto(`https://web.whatsapp.com/send?phone=${cleanPhone}`, {
+          waitUntil: 'domcontentloaded',
+          timeout: 60000
+        });
       }
 
       // Ждем появления чата
@@ -529,14 +529,10 @@ class WhatsAppManager {
         });
       } else {
         console.log('✅ WhatsApp Web уже открыт, открываю чат...');
-
-        // Открываем чат через внутреннюю навигацию (без перезагрузки страницы)
-        await this.page.evaluate((phone) => {
-          window.location.href = `https://web.whatsapp.com/send?phone=${phone}`;
-        }, cleanPhone);
-
-        // Даем время на начало навигации
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await this.page.goto(`https://web.whatsapp.com/send?phone=${cleanPhone}`, {
+          waitUntil: 'domcontentloaded',
+          timeout: 60000
+        });
 
         // Ожидаем исчезновения спиннера загрузки (если он есть)
         console.log('⏳ Ожидание загрузки интерфейса...');
