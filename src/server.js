@@ -12,6 +12,7 @@ import invoiceCounter from './invoiceCounter.js';
 import AutoSendScheduler from './autoSendScheduler.js';
 import PaymentReminderService from './paymentReminderService.js';
 import InvoiceTelegramBot from './telegramBot.js';
+import RecurringPaymentsDatabase from './recurringPaymentsDatabase.js';
 import { authMiddleware, loginHandler, verifyHandler, logoutHandler, rateLimitMiddleware } from './authMiddleware.js';
 import authDatabase from './authDatabase.js';
 import { validate, validateInvoice, validateClient, validateProduct } from './validators.js';
@@ -170,15 +171,18 @@ const invoiceService = new SimpleInvoiceService({
 
 // Создаем базы данных
 const db = new InvoiceDatabase();
+invoiceCounter.setDatabase(db); // счётчик номеров сверяется с базой, чтобы не выдавать занятые номера
 const warehouseDb = new WarehouseDatabase();
 const clientsDb = new ClientsDatabase();
 const categoriesDb = new ExpenseCategories();
+const recurringPaymentsDb = new RecurringPaymentsDatabase();
 
 // Создаем планировщик автоматической рассылки
 let autoSendScheduler = null;
 
 // Создаем сервис напоминаний об оплате
 let paymentReminderService = null;
+let recurringReminder = null;
 
 // Создаем Telegram бота
 let telegramBot = null;
@@ -195,7 +199,7 @@ function sanitizeFilename(name) {
 // API endpoint для создания счета
 app.post('/api/invoice', async (req, res) => {
   try {
-    const { invoiceNumber, invoiceDate, clientName, clientPhone, isRecurring, items, discount, payment, uploadToYandex, getPublicLink } = req.body;
+    const { invoiceNumber, invoiceDate, clientName, clientPhone, isRecurring, paymentDeadlineDay, items, discount, payment, uploadToYandex, getPublicLink } = req.body;
 
     // Валидация данных
     if (!invoiceNumber || !clientName || !items || !items.length || !payment) {
@@ -299,13 +303,13 @@ app.post('/api/invoice', async (req, res) => {
       client: clientName,
       clientPhone: clientPhone || '',
       isRecurring: isRecurring || false,
+      paymentDeadlineDay: paymentDeadlineDay ? parseInt(paymentDeadlineDay) : null,
       payment: invoiceData.payment,
       yandexPath,
       publicUrl
     });
 
-    // Инкрементируем счетчик ТОЛЬКО после успешного сохранения
-    invoiceCounter.getNextInvoiceNumber();
+    // Номер берётся из peekNextNumber() (макс. номер в базе + 1) — отдельный инкремент больше не нужен
 
     // Автоматически создаем расходы для товаров с себестоимостью
     const itemsWithCost = invoiceData.items.filter(item => item.cost && item.cost > 0);
@@ -546,7 +550,7 @@ app.get('/api/invoices/paid/list', (req, res) => {
 app.put('/api/invoices/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { invoiceNumber, invoiceDate, clientName, clientPhone, isRecurring, items, discount, payment } = req.body;
+    const { invoiceNumber, invoiceDate, clientName, clientPhone, isRecurring, paymentDeadlineDay, items, discount, payment } = req.body;
 
     // Получаем существующий счет
     const existingInvoice = db.getInvoiceById(id);
@@ -615,8 +619,8 @@ app.put('/api/invoices/:id', async (req, res) => {
     // Генерируем новый PDF
     await invoiceService.createInvoice(invoiceData, filename);
 
-    // Обновляем данные в базе
-    const updatedInvoice = db.updateInvoice(id, {
+    // Если invoiceDate изменился и авторассылка включена — обновляем nextSendDate
+    const updateData = {
       invoiceNumber,
       invoiceDate: invoiceData.invoiceDate,
       filename,
@@ -627,7 +631,17 @@ app.put('/api/invoices/:id', async (req, res) => {
       clientPhone: clientPhone || '',
       isRecurring: isRecurring || false,
       payment: invoiceData.payment
-    });
+    };
+
+    // Синхронизируем nextSendDate с invoiceDate при редактировании
+    if (existingInvoice.autoSendEnabled && invoiceData.invoiceDate !== existingInvoice.invoiceDate) {
+      updateData.nextSendDate = invoiceData.invoiceDate;
+      updateData.createdAt = invoiceData.invoiceDate;
+      console.log(`[UpdateInvoice] Счет №${invoiceNumber}: nextSendDate обновлен на ${invoiceData.invoiceDate}`);
+    }
+
+    // Обновляем данные в базе
+    const updatedInvoice = db.updateInvoice(id, updateData);
 
     res.json({
       success: true,
@@ -659,6 +673,11 @@ app.put('/api/invoices/:id/payment', async (req, res) => {
     // Обновляем статус
     const invoice = db.updatePaymentStatus(id, paid);
 
+    // Отключаем напоминания при полной оплате
+    if (paid) {
+      db.updateInvoice(id, { reminderEnabled: false });
+    }
+
     if (!invoice) {
       return res.status(404).json({ error: 'Счет не найден' });
     }
@@ -676,6 +695,7 @@ app.put('/api/invoices/:id/payment', async (req, res) => {
           invoiceNumber: newInvoiceNumber,
           clientName: invoice.client,
           isRecurring: invoice.isRecurring || false,
+          paymentDeadlineDay: invoice.paymentDeadlineDay || null,
           items: invoice.items,
           payment: invoice.payment
         };
@@ -695,21 +715,17 @@ app.put('/api/invoices/:id/payment', async (req, res) => {
           }
         }
 
-        // Вычисляем дату следующей отправки на основе текущего nextSendDate оплаченного счета
-        // Это сохраняет правильное число месяца (например, 13 число)
-        let nextSendDate;
-        if (invoice.nextSendDate) {
-          // Используем nextSendDate из оплаченного счета и добавляем 1 месяц
-          const { addMonth } = await import('./dateUtils.js');
-          nextSendDate = addMonth(new Date(invoice.nextSendDate));
-        } else {
-          // Если nextSendDate не было, используем текущую дату + 1 месяц
-          nextSendDate = new Date();
-          nextSendDate.setMonth(nextSendDate.getMonth() + 1);
-        }
-
-        // Дата создания нового счета = дата следующей отправки
-        const nextMonthDate = new Date(nextSendDate);
+        // Вычисляем даты для нового счета
+        // Дата нового счета = invoiceDate оплаченного + 1 месяц (сохраняем число месяца)
+        // Например: счет от 01.03 -> новый на 01.04, счет от 14.03 -> новый на 14.04
+        const { addMonth } = await import('./dateUtils.js');
+        const baseDate = invoice.invoiceDate
+          ? new Date(invoice.invoiceDate)
+          : invoice.createdAt
+            ? new Date(invoice.createdAt)
+            : new Date();
+        const nextMonthDate = addMonth(baseDate); // Дата нового счета (invoiceDate + 1 месяц)
+        const nextSendDate = new Date(nextMonthDate); // Отправлять в дату нового счета
 
         // Подготавливаем данные для генерации PDF с правильной датой счета
         invoiceData.invoiceDate = nextMonthDate.toISOString();
@@ -732,7 +748,9 @@ app.put('/api/invoices/:id/payment', async (req, res) => {
           client: invoice.client,
           clientPhone: invoice.clientPhone || '',
           isRecurring: invoice.isRecurring || false,
+          paymentDeadlineDay: invoice.paymentDeadlineDay || null,
           payment: invoiceData.payment,
+          invoiceDate: nextMonthDate.toISOString(),
           yandexPath: null,
           publicUrl: null,
           autoSendEnabled: true,  // Включаем авторассылку
@@ -788,7 +806,9 @@ app.put('/api/invoices/:id/partial-payment', async (req, res) => {
       // Если оплачена полная сумма или больше - помечаем как оплаченный
       paid: willBeFullyPaid,
       // Устанавливаем дату оплаты для корректной работы аналитики
-      paidAt: new Date().toISOString()
+      paidAt: new Date().toISOString(),
+      // Отключаем напоминания при полной оплате
+      reminderEnabled: willBeFullyPaid ? false : invoice.reminderEnabled
     });
 
     console.log(`[PartialPayment] Счет №${invoice.invoiceNumber}: оплачено ${paidAmount} ₽ из ${invoice.amount} ₽`);
@@ -807,6 +827,7 @@ app.put('/api/invoices/:id/partial-payment', async (req, res) => {
           invoiceNumber: newInvoiceNumber,
           clientName: invoice.client,
           isRecurring: invoice.isRecurring || false,
+          paymentDeadlineDay: invoice.paymentDeadlineDay || null,
           items: invoice.items,
           payment: invoice.payment
         };
@@ -826,12 +847,16 @@ app.put('/api/invoices/:id/partial-payment', async (req, res) => {
           }
         }
 
-        // Вычисляем дату следующей отправки (текущая дата + 1 месяц, то же число)
-        const nextSendDate = new Date();
-        nextSendDate.setMonth(nextSendDate.getMonth() + 1);
-
-        // Дата создания нового счета = дата следующей отправки (следующий месяц)
-        const nextMonthDate = new Date(nextSendDate);
+        // Вычисляем даты для нового счета
+        // Дата нового счета = invoiceDate оплаченного + 1 месяц (сохраняем число месяца)
+        const { addMonth } = await import('./dateUtils.js');
+        const baseDate = invoice.invoiceDate
+          ? new Date(invoice.invoiceDate)
+          : invoice.createdAt
+            ? new Date(invoice.createdAt)
+            : new Date();
+        const nextMonthDate = addMonth(baseDate); // Дата нового счета
+        const nextSendDate = new Date(nextMonthDate); // Отправлять в дату нового счета
 
         // Генерируем имя файла с датой следующего месяца
         const clientNameClean = sanitizeFilename(invoice.client);
@@ -851,7 +876,9 @@ app.put('/api/invoices/:id/partial-payment', async (req, res) => {
           client: invoice.client,
           clientPhone: invoice.clientPhone || '',
           isRecurring: invoice.isRecurring || false,
+          paymentDeadlineDay: invoice.paymentDeadlineDay || null,
           payment: invoiceData.payment,
+          invoiceDate: nextMonthDate.toISOString(),
           yandexPath: null,
           publicUrl: null,
           autoSendEnabled: true,  // Включаем авторассылку
@@ -1023,10 +1050,122 @@ app.delete('/api/expense-categories/:id', (req, res) => {
   }
 });
 
+// ============= API: Регулярные платежи =============
+
+// Получить все регулярные платежи
+app.get('/api/recurring-payments', (req, res) => {
+  try {
+    const payments = recurringPaymentsDb.getAllPayments();
+    res.json({ payments });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Добавить регулярный платеж
+app.post('/api/recurring-payments', (req, res) => {
+  try {
+    const payment = recurringPaymentsDb.addPayment(req.body);
+    res.json({ success: true, payment });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Обновить регулярный платеж
+app.put('/api/recurring-payments/:id', (req, res) => {
+  try {
+    const payment = recurringPaymentsDb.updatePayment(req.params.id, req.body);
+    res.json({ success: true, payment });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Удалить регулярный платеж
+app.delete('/api/recurring-payments/:id', (req, res) => {
+  try {
+    const payment = recurringPaymentsDb.deletePayment(req.params.id);
+    res.json({ success: true, message: 'Платеж удален', payment });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Статус платежей за месяц (текущий или указанный)
+app.get('/api/recurring-payments/status/:month?', (req, res) => {
+  try {
+    const month = req.params.month || null;
+    const status = recurringPaymentsDb.getMonthStatus(month);
+    const currentMonth = recurringPaymentsDb.getCurrentMonth();
+    res.json({ month: month || currentMonth, payments: status });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Отметить платеж как оплаченный
+app.post('/api/recurring-payments/:id/pay', (req, res) => {
+  try {
+    const entry = recurringPaymentsDb.markAsPaid(req.params.id, req.body.via || 'web');
+    res.json({ success: true, entry });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Снять отметку оплаты
+app.post('/api/recurring-payments/:id/unpay', (req, res) => {
+  try {
+    const removed = recurringPaymentsDb.markAsUnpaid(req.params.id);
+    if (removed) {
+      res.json({ success: true, message: 'Отметка оплаты снята' });
+    } else {
+      res.status(404).json({ error: 'Запись оплаты не найдена за текущий месяц' });
+    }
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Настройки напоминаний
+app.get('/api/recurring-payments/settings', (req, res) => {
+  try {
+    const settings = recurringPaymentsDb.getSettings();
+    res.json({ settings });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/recurring-payments/settings', (req, res) => {
+  try {
+    const settings = recurringPaymentsDb.updateSettings(req.body);
+    res.json({ success: true, settings });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Тестовая отправка напоминания о регулярных платежах
+app.post('/api/recurring-payments/test-remind', async (req, res) => {
+  try {
+    if (!recurringReminder) {
+      return res.status(400).json({ error: 'Сервис напоминаний не инициализирован' });
+    }
+    const result = await recurringReminder.sendTestReminder();
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Дублировать счет (создать новый с тем же содержанием, но новым номером)
 app.post('/api/invoices/:id/duplicate', async (req, res) => {
   try {
     const { id } = req.params;
+    // Опциональные параметры из формы: своя дата нового счёта и настройки авторассылки
+    const { invoiceDate: customDate, autoSendEnabled, nextSendDate } = req.body || {};
 
     // Получаем оригинальный счет
     const originalInvoice = db.getInvoiceById(id);
@@ -1071,9 +1210,12 @@ app.post('/api/invoices/:id/duplicate', async (req, res) => {
       }
     }
 
-    // Вычисляем дату нового счета (следующий месяц от оригинала)
+    // Дата нового счёта: либо указанная в форме, либо следующий месяц от оригинала
     let newInvoiceDate;
-    if (originalInvoice.invoiceDate) {
+    if (customDate) {
+      // Принимаем YYYY-MM-DD или ISO — приводим к YYYY-MM-DD
+      newInvoiceDate = String(customDate).split('T')[0];
+    } else if (originalInvoice.invoiceDate) {
       const originalDate = new Date(originalInvoice.invoiceDate);
       newInvoiceDate = new Date(originalDate);
       newInvoiceDate.setMonth(newInvoiceDate.getMonth() + 1);
@@ -1092,6 +1234,18 @@ app.post('/api/invoices/:id/duplicate', async (req, res) => {
     // Генерируем PDF
     await invoiceService.createInvoice(invoiceData, filename);
 
+    // Дата следующей авторассылки: указанная в форме, иначе = дата нового счёта (10:00)
+    let resolvedNextSendDate = null;
+    if (autoSendEnabled) {
+      if (nextSendDate) {
+        resolvedNextSendDate = new Date(nextSendDate).toISOString();
+      } else {
+        const dt = new Date(newInvoiceDate);
+        dt.setHours(10, 0, 0, 0);
+        resolvedNextSendDate = dt.toISOString();
+      }
+    }
+
     // Сохраняем в базу данных
     const newInvoice = db.addInvoice({
       invoiceNumber: newInvoiceNumber,
@@ -1102,16 +1256,23 @@ app.post('/api/invoices/:id/duplicate', async (req, res) => {
       client: originalInvoice.client,
       clientPhone: originalInvoice.clientPhone || '',
       isRecurring: originalInvoice.isRecurring || false,
+      paymentDeadlineDay: originalInvoice.paymentDeadlineDay || null,
       payment: invoiceData.payment,
       invoiceDate: newInvoiceDate,
       yandexPath: null,
-      publicUrl: null
+      publicUrl: null,
+      autoSendEnabled: !!autoSendEnabled,
+      nextSendDate: resolvedNextSendDate
     });
+
+    const sendMsg = autoSendEnabled && resolvedNextSendDate
+      ? ` Авторассылка включена на ${new Date(resolvedNextSendDate).toLocaleDateString('ru-RU')} (далее — ежемесячно).`
+      : '';
 
     res.json({
       success: true,
       invoice: newInvoice,
-      message: `Создан новый счет №${newInvoiceNumber} на основе счета №${originalInvoice.invoiceNumber}`
+      message: `Создан новый счёт №${newInvoiceNumber} на основе счёта №${originalInvoice.invoiceNumber}.${sendMsg}`
     });
 
   } catch (error) {
@@ -1364,9 +1525,17 @@ app.post('/api/clients', validate(validateClient), (req, res) => {
 // Обновить клиента
 app.put('/api/clients/:id', validate(validateClient), (req, res) => {
   try {
+    const existing = clientsDb.getClientById(req.params.id);
+    const oldPhone = existing ? existing.phone : null;
     const client = clientsDb.updateClient(req.params.id, req.body);
     if (client) {
-      res.json({ success: true, client });
+      // Авто-проброс нового номера в активные (неоплаченные) счета клиента:
+      // напоминания/авто-отправка берут номер из счёта, а не из карточки.
+      let syncedInvoices = [];
+      if (oldPhone && client.phone && oldPhone !== client.phone) {
+        syncedInvoices = db.syncClientPhone(oldPhone, client.phone, client.name);
+      }
+      res.json({ success: true, client, syncedInvoices });
     } else {
       res.status(404).json({ error: 'Клиент не найден' });
     }
@@ -1529,13 +1698,24 @@ app.post('/api/whatsapp/send-file', async (req, res) => {
 
     // Если отправка успешна, обновляем информацию о счете
     if (result.success && invoice) {
-      db.updateInvoice(invoice.id, {
-        lastWhatsAppSent: new Date().toISOString(),
+      const isFirstSend = !invoice.whatsAppSentCount || invoice.whatsAppSentCount === 0;
+      const currentDate = new Date().toISOString();
+
+      const updateData = {
+        lastWhatsAppSent: currentDate,
         whatsAppSentCount: (invoice.whatsAppSentCount || 0) + 1,
         // Автоматически включаем напоминания при первой отправке
-        reminderEnabled: invoice.reminderEnabled !== undefined ? invoice.reminderEnabled : true
-      });
-      console.log(`Счет №${invoiceId} отмечен как отправленный через WhatsApp`);
+        reminderEnabled: isFirstSend ? true : invoice.reminderEnabled
+      };
+
+      // При первой отправке устанавливаем дату выставления счета
+      if (isFirstSend) {
+        updateData.invoiceDate = currentDate;
+        console.log(`📅 Счет №${invoiceId}: установлена дата выставления ${new Date(currentDate).toLocaleDateString('ru-RU')}`);
+      }
+
+      db.updateInvoice(invoice.id, updateData);
+      console.log(`Счет №${invoiceId} отмечен как отправленный через WhatsApp (отправка №${updateData.whatsAppSentCount})`);
     }
 
     res.json(result);
@@ -1602,7 +1782,7 @@ app.get('/api/invoice-counter/next', (req, res) => {
 // Получить текущий номер без инкремента
 app.get('/api/invoice-counter/current', (req, res) => {
   try {
-    const currentNumber = invoiceCounter.getCurrentNumber();
+    const currentNumber = invoiceCounter.peekNextNumber();
     res.json({ number: currentNumber });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1807,7 +1987,7 @@ app.post('/api/payment-reminders/send-now', async (req, res) => {
     if (result.success) {
       // Обновляем счет
       db.updateInvoice(invoiceId, {
-        lastReminderSent: new Date().toISOString(),
+        lastReminderSentAt: new Date().toISOString(),
         reminderCount: (invoice.reminderCount || 0) + 1
       });
 
@@ -1822,6 +2002,251 @@ app.post('/api/payment-reminders/send-now', async (req, res) => {
     console.error('Ошибка отправки напоминания:', error);
     res.status(500).json({ error: error.message });
   }
+});
+
+app.post('/api/payment-reminders/bulk-queue', (req, res) => {
+  try {
+    const { invoiceIds } = req.body;
+    if (!Array.isArray(invoiceIds) || invoiceIds.length === 0) {
+      return res.status(400).json({ error: 'Необходимо указать массив ID счетов' });
+    }
+    if (!paymentReminderService) {
+      return res.status(400).json({ error: 'Сервис напоминаний не инициализирован' });
+    }
+    const results = paymentReminderService.addToManualQueue(invoiceIds);
+    const added = results.filter(r => r.success).length;
+    const errors = results.filter(r => !r.success);
+    res.json({ success: true, results, added, errors });
+  } catch (error) {
+    console.error('Ошибка добавления в очередь:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/payment-reminders/manual-queue', (req, res) => {
+  if (!paymentReminderService) {
+    return res.json({ items: [], isProcessing: false, pendingCount: 0, sentCount: 0, failedCount: 0 });
+  }
+  res.json(paymentReminderService.getManualQueueStatus());
+});
+
+app.delete('/api/payment-reminders/manual-queue/:invoiceId', (req, res) => {
+  if (!paymentReminderService) {
+    return res.status(400).json({ error: 'Сервис не инициализирован' });
+  }
+  const result = paymentReminderService.removeFromManualQueue(req.params.invoiceId);
+  res.json(result);
+});
+
+app.post('/api/payment-reminders/manual-queue/clear', (req, res) => {
+  if (!paymentReminderService) {
+    return res.status(400).json({ error: 'Сервис не инициализирован' });
+  }
+  const result = paymentReminderService.clearManualQueue();
+  res.json({ success: true, ...result });
+});
+
+
+// ===== ОЧЕРЕДЬ ОТПРАВКИ СЧЕТОВ (PDF) =====
+const invoiceSendQueue = {
+  items: [],
+  isProcessing: false,
+  DELAY_MS: 30000, // 30 сек между отправками
+
+  addInvoices(invoiceNumbers) {
+    const results = [];
+    for (const num of invoiceNumbers) {
+      const inv = db.getInvoiceByNumber(String(num)) || db.getAllInvoices().find(i => String(i.id) === String(num) || String(i.invoiceNumber) === String(num));
+      if (!inv) { results.push({ invoiceNumber: num, success: false, error: 'Счет не найден' }); continue; }
+      if (!inv.clientPhone) { results.push({ invoiceNumber: num, success: false, error: 'Нет номера телефона' }); continue; }
+      if (this.items.some(i => String(i.invoice.invoiceNumber) === String(inv.invoiceNumber) && i.status === 'pending')) {
+        results.push({ invoiceNumber: num, success: false, error: 'Уже в очереди' }); continue;
+      }
+      this.items.push({ invoice: inv, status: 'pending', addedAt: new Date().toISOString(), sentAt: null, error: null });
+      results.push({ invoiceNumber: inv.invoiceNumber, client: inv.client, success: true });
+    }
+    if (!this.isProcessing && this.items.some(i => i.status === 'pending')) {
+      this.process();
+    }
+    return results;
+  },
+
+  addByClientIds(clientIds) {
+    const allInvoices = db.getAllInvoices();
+    const clients = clientIds.map(id => clientsDb.getClientById(id)).filter(Boolean);
+    const invoiceNumbers = [];
+    const notFound = [];
+    for (const client of clients) {
+      const found = allInvoices.filter(inv =>
+        !inv.paid && inv.clientPhone &&
+        (inv.client === client.name ||
+          (client.phone && inv.clientPhone.replace(/\D/g,'').endsWith(client.phone.replace(/\D/g,'').slice(-10))))
+      ).sort((a, b) => new Date(b.invoiceDate || b.createdAt) - new Date(a.invoiceDate || a.createdAt));
+      if (found.length > 0) invoiceNumbers.push(found[0].invoiceNumber);
+      else notFound.push({ clientId: client.id, name: client.name, error: 'Нет неоплаченных счетов' });
+    }
+    const results = this.addInvoices(invoiceNumbers);
+    return { results, notFound };
+  },
+
+  async process() {
+    if (this.isProcessing) return;
+    this.isProcessing = true;
+    try {
+      while (true) {
+        const next = this.items.find(i => i.status === 'pending');
+        if (!next) break;
+        next.status = 'sending';
+        try {
+          const inv = next.invoice;
+          let phone = (inv.clientPhone || '').replace(/\D/g, '');
+          if (phone.startsWith('8')) phone = '7' + phone.slice(1);
+          if (!phone.startsWith('7')) phone = '7' + phone;
+
+          // Загружаем шаблон сообщения
+          let msgTemplate = 'Добрый день!\n\nВысылаю счет №{номер} на оплату.\n\nС уважением.';
+          try {
+            const settingsPath = path.join(__dirname, '../data/whatsapp-settings.json');
+            if (fs.existsSync(settingsPath)) {
+              const s = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+              if (s.greeting) msgTemplate = s.greeting;
+            }
+          } catch(e) {}
+          const message = msgTemplate.replace('{номер}', inv.invoiceNumber);
+
+          // Ищем PDF файл
+          const outputDir = path.join(__dirname, '../output');
+          const files = fs.readdirSync(outputDir).filter(f => {
+            if (!f.endsWith('.pdf')) return false;
+            const m1 = f.match(/^Счет_(\d+)_/);
+            if (m1 && m1[1] === String(inv.invoiceNumber)) return true;
+            const m2 = f.match(/^invoice_(\d+)_/);
+            if (m2 && m2[1] === String(inv.invoiceNumber)) return true;
+            return false;
+          });
+          if (files.length === 0) throw new Error('PDF файл не найден');
+
+          let pdfFile = files[0];
+          if (files.length > 1) {
+            const clientClean = sanitizeFilename(inv.client || '');
+            pdfFile = files.find(f => f.includes(clientClean)) || files.sort((a,b) => {
+              return fs.statSync(path.join(outputDir,b)).mtime - fs.statSync(path.join(outputDir,a)).mtime;
+            })[0];
+          }
+          const pdfPath = path.join(outputDir, pdfFile);
+
+          const result = await whatsappManager.sendMessageWithFile(phone, message, pdfPath);
+          if (!result.success) throw new Error(result.error || 'Ошибка WhatsApp');
+
+          // Обновляем счет
+          const currentDate = new Date().toISOString();
+          const isFirst = !inv.whatsAppSentCount || inv.whatsAppSentCount === 0;
+          db.updateInvoice(inv.id, {
+            lastWhatsAppSent: currentDate,
+            whatsAppSentCount: (inv.whatsAppSentCount || 0) + 1,
+            reminderEnabled: isFirst ? true : inv.reminderEnabled,
+            ...(isFirst ? { invoiceDate: currentDate } : {})
+          });
+
+          next.status = 'sent';
+          next.sentAt = currentDate;
+          console.log(`[InvoiceQueue] ✅ Счет №${inv.invoiceNumber} отправлен клиенту ${inv.client}`);
+        } catch(err) {
+          next.status = 'failed';
+          next.error = err.message;
+          console.error(`[InvoiceQueue] ❌ Ошибка счет №${next.invoice.invoiceNumber}:`, err.message);
+        }
+        const hasMore = this.items.some(i => i.status === 'pending');
+        if (hasMore) {
+          console.log(`[InvoiceQueue] Ожидание ${this.DELAY_MS/1000}с перед следующей отправкой...`);
+          await new Promise(r => setTimeout(r, this.DELAY_MS));
+        }
+      }
+    } finally {
+      this.isProcessing = false;
+    }
+  },
+
+  getStatus() {
+    return {
+      items: this.items.map(i => ({
+        invoiceNumber: i.invoice.invoiceNumber,
+        invoiceId: i.invoice.id,
+        client: i.invoice.client,
+        phone: i.invoice.clientPhone,
+        status: i.status,
+        addedAt: i.addedAt,
+        sentAt: i.sentAt,
+        error: i.error
+      })),
+      isProcessing: this.isProcessing,
+      pendingCount: this.items.filter(i => i.status === 'pending').length,
+      sendingCount: this.items.filter(i => i.status === 'sending').length,
+      sentCount: this.items.filter(i => i.status === 'sent').length,
+      failedCount: this.items.filter(i => i.status === 'failed').length
+    };
+  },
+
+  remove(invoiceNumber) {
+    const idx = this.items.findIndex(i => String(i.invoice.invoiceNumber) === String(invoiceNumber) && i.status === 'pending');
+    if (idx !== -1) { this.items.splice(idx, 1); return { success: true }; }
+    return { success: false, error: 'Не найдено или уже отправляется' };
+  },
+
+  clear() {
+    const removed = this.items.filter(i => i.status === 'pending').length;
+    this.items = this.items.filter(i => i.status !== 'pending');
+    return { removed };
+  },
+
+  clearAll() {
+    this.items = [];
+    return { success: true };
+  }
+};
+
+// API: добавить счета в очередь отправки
+app.post('/api/invoice-queue/add', (req, res) => {
+  try {
+    const { invoiceNumbers } = req.body;
+    if (!Array.isArray(invoiceNumbers) || invoiceNumbers.length === 0)
+      return res.status(400).json({ error: 'Необходим массив invoiceNumbers' });
+    const results = invoiceSendQueue.addInvoices(invoiceNumbers);
+    const added = results.filter(r => r.success).length;
+    res.json({ success: true, added, results });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// API: добавить по клиентам (находит последний неоплаченный счет)
+app.post('/api/invoice-queue/add-by-clients', (req, res) => {
+  try {
+    const { clientIds } = req.body;
+    if (!Array.isArray(clientIds) || clientIds.length === 0)
+      return res.status(400).json({ error: 'Необходим массив clientIds' });
+    const { results, notFound } = invoiceSendQueue.addByClientIds(clientIds);
+    const added = results.filter(r => r.success).length;
+    res.json({ success: true, added, notFound, results });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// API: статус очереди
+app.get('/api/invoice-queue/status', (req, res) => {
+  res.json(invoiceSendQueue.getStatus());
+});
+
+// API: убрать из очереди
+app.delete('/api/invoice-queue/:invoiceNumber', (req, res) => {
+  res.json(invoiceSendQueue.remove(req.params.invoiceNumber));
+});
+
+// API: очистить ожидающие
+app.post('/api/invoice-queue/clear', (req, res) => {
+  res.json(invoiceSendQueue.clear());
+});
+
+// API: очистить все (включая отправленные/ошибки)
+app.post('/api/invoice-queue/clear-all', (req, res) => {
+  res.json(invoiceSendQueue.clearAll());
 });
 
 // API endpoint для сохранения настроек WhatsApp сообщений
@@ -2036,31 +2461,74 @@ startServer().catch(err => {
   process.exit(1);
 });
 
+// Запуск сервисов, зависящих от WhatsApp (после успешной инициализации)
+function startWhatsAppDependentServices() {
+  if (autoSendScheduler) return; // уже запущены (повторный вызов после ретрая)
+
+  // Запускаем планировщик автоматической рассылки после инициализации WhatsApp
+  autoSendScheduler = new AutoSendScheduler(whatsappManager, db);
+  autoSendScheduler.start();
+
+  // Запускаем сервис напоминаний об оплате
+  paymentReminderService = new PaymentReminderService(whatsappManager, db);
+  paymentReminderService.start();
+
+  // Telegram-бот мог быть создан раньше с paymentReminderService = null
+  if (telegramBot) {
+    telegramBot.paymentReminderService = paymentReminderService;
+  }
+}
+
+// Повторные попытки инициализации WhatsApp: если при старте прокси/браузер
+// был недоступен, без ретрая авторассылка и напоминания мертвы до ручного рестарта
+const WHATSAPP_RETRY_INTERVAL_MS = 10 * 60 * 1000;
+
+async function retryWhatsAppInit(attempt) {
+  try {
+    console.log('');
+    console.log(`📱 Повторная инициализация WhatsApp Web (попытка ${attempt})...`);
+    try { await whatsappManager.close(); } catch (e) { /* браузер мог не подняться */ }
+    await whatsappManager.initialize();
+    startWhatsAppDependentServices();
+    console.log('✅ WhatsApp инициализирован после ретрая, авторассылка запущена');
+  } catch (error) {
+    console.error(`❌ Ретрай WhatsApp #${attempt} не удался: ${error.message}`);
+    console.error('   Следующая попытка через 10 минут');
+    setTimeout(() => retryWhatsAppInit(attempt + 1), WHATSAPP_RETRY_INTERVAL_MS);
+  }
+}
+
 // Инициализация WhatsApp
 async function initWhatsApp() {
   try {
     console.log('');
     console.log('📱 Инициализация WhatsApp Web...');
     await whatsappManager.initialize();
-
-    // Запускаем планировщик автоматической рассылки после инициализации WhatsApp
-    autoSendScheduler = new AutoSendScheduler(whatsappManager);
-    autoSendScheduler.start();
-
-    // Запускаем сервис напоминаний об оплате
-    paymentReminderService = new PaymentReminderService(whatsappManager);
-    paymentReminderService.start();
+    startWhatsAppDependentServices();
   } catch (error) {
     console.error('❌ Ошибка инициализации WhatsApp:', error.message);
-    console.error('   WhatsApp отправка будет недоступна');
+    console.error('   WhatsApp отправка недоступна, повторная попытка через 10 минут');
+    setTimeout(() => retryWhatsAppInit(1), WHATSAPP_RETRY_INTERVAL_MS);
   }
 
   // Запускаем Telegram бота (независимо от состояния WhatsApp)
   try {
     console.log('');
     console.log('🤖 Инициализация Telegram бота...');
-    telegramBot = new InvoiceTelegramBot(db, clientsDb, warehouseDb, whatsappManager, invoiceService, paymentReminderService);
+    telegramBot = new InvoiceTelegramBot(db, clientsDb, warehouseDb, whatsappManager, invoiceService, paymentReminderService, recurringPaymentsDb);
   } catch (error) {
     console.error('❌ Ошибка инициализации Telegram бота:', error.message);
+  }
+
+  // Запускаем сервис напоминаний о регулярных платежах
+  try {
+    console.log('');
+    console.log('📅 Инициализация сервиса напоминаний о регулярных платежах...');
+    const { default: RecurringPaymentsReminder } = await import('./recurringPaymentsReminder.js');
+    recurringReminder = new RecurringPaymentsReminder(recurringPaymentsDb, telegramBot);
+    recurringReminder.start();
+    console.log('✅ Сервис напоминаний о регулярных платежах запущен');
+  } catch (error) {
+    console.error('❌ Ошибка инициализации сервиса регулярных платежей:', error.message);
   }
 }
