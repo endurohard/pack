@@ -179,9 +179,22 @@ function isMoscowWorkingHours() {
   return hour >= 10 && hour < 20;
 }
 
+/**
+ * Календарная дата по московскому времени в виде 'YYYY-MM-DD'
+ * (строки сравнимы лексикографически)
+ * @param {Date|string} date - дата (по умолчанию сейчас)
+ * @returns {string} например '2026-07-02'
+ */
+function getMoscowDateString(date = new Date()) {
+  const d = new Date(date);
+  const moscow = new Date(d.getTime() + 3 * 60 * 60 * 1000); // UTC+3
+  return moscow.toISOString().slice(0, 10);
+}
+
 export {
   getMoscowHour,
   isMoscowWorkingHours,
+  getMoscowDateString,
   getInvoiceSentDate,
   subtractMonth,
   addMonth,

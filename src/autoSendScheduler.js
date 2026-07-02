@@ -1,6 +1,6 @@
 // InvoiceDatabase передаётся через конструктор
 import WhatsAppManager from './whatsappManager.js';
-import { getInvoiceSentDate, daysBetween, getDaysWord, isMoscowWorkingHours } from './dateUtils.js';
+import { getInvoiceSentDate, daysBetween, getDaysWord, isMoscowWorkingHours, getMoscowDateString } from './dateUtils.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -61,18 +61,12 @@ class AutoSendScheduler {
       return false;
     }
 
-    const now = new Date();
-    const sendDate = new Date(invoice.nextSendDate);
-
-    // Проверяем, что дата наступила
-    if (sendDate > now) {
-      return false;
-    }
-
-    // Дата наступила — отправляем, даже если запланированное время было пропущено
-    // (раньше окно ограничивалось 24 часами, и пропущенные счета зависали навсегда).
+    // Сравниваем только календарные даты по МСК: время суток в nextSendDate —
+    // артефакт момента создания счёта, из-за него счета уходили не с 10:00,
+    // а в «унаследованное» время (например, 16:14). Старт с 10:00 МСК
+    // гарантирует проверка isMoscowWorkingHours() в checkAndSend().
     // Защита от повторной отправки в тот же день есть в wasSentToClientToday().
-    return true;
+    return getMoscowDateString(invoice.nextSendDate) <= getMoscowDateString();
   }
 
   /**
@@ -169,9 +163,11 @@ class AutoSendScheduler {
           return false;
         }
 
-        // Если счет уже отправляли через WhatsApp после запланированной даты
-        // (например, вручную), не дублируем отправку — сдвигаем дату на следующий период
-        if (invoice.lastWhatsAppSent && new Date(invoice.lastWhatsAppSent) >= new Date(invoice.nextSendDate)) {
+        // Если счет уже отправляли через WhatsApp в запланированный день или позже
+        // (например, вручную), не дублируем отправку — сдвигаем дату на следующий период.
+        // Сравнение по МСК-датам: ручная отправка утром ДО планового времени того же
+        // дня тоже считается выполненной, иначе счёт ушёл бы повторно на следующий день.
+        if (invoice.lastWhatsAppSent && getMoscowDateString(invoice.lastWhatsAppSent) >= getMoscowDateString(invoice.nextSendDate)) {
           console.log(`[AutoSend] Счет №${invoice.invoiceNumber} уже отправлен ${new Date(invoice.lastWhatsAppSent).toLocaleString('ru-RU')} (после запланированной даты), сдвигаем дату следующей отправки`);
           this.db.updateNextSendDate(invoice.id);
           return false;

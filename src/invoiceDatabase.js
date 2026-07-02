@@ -2,6 +2,7 @@ import fs from 'fs';
 import { promises as fsPromises } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getMoscowDateString } from './dateUtils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -310,8 +311,10 @@ class InvoiceDatabase {
       const paidAmount = inv.paidAmount || 0;
       if (paidAmount >= inv.amount) return false;
 
-      const sendDate = new Date(inv.nextSendDate);
-      return sendDate <= now;
+      // Сравнение по календарной дате МСК: время суток в nextSendDate —
+      // артефакт создания счёта; из-за него счета «на сегодня» не попадали
+      // в выборку до этого времени и уходили не с 10:00 МСК
+      return getMoscowDateString(inv.nextSendDate) <= getMoscowDateString(now);
     });
   }
 
